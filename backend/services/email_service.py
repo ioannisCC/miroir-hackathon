@@ -14,25 +14,21 @@ import re
 
 from backend.core.config import get_settings
 from backend.core.logging import get_logger
+from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 
-SYSTEM_PROMPT = """
-You are a professional collections specialist drafting outreach emails.
+def _build_email_system_prompt() -> str:
+    """Build email system prompt from live guidelines."""
+    gl = get_guidelines()
+    email_rules = gl["email_rules"]
+    rules_block = "\n".join(f"- {line.strip()}" for line in email_rules.split("\n") if line.strip())
+    return f"""You are a professional collections specialist drafting outreach emails.
 
 RULES:
-- Adapt tone entirely to the contact's behavioral profile
-- Never threaten legal action
-- Never use aggressive or demeaning language
-- Never create false urgency or fabricate deadlines
-- Never imply consequences you cannot deliver
-- Be specific — reference the debt amount and any prior contact
-- Keep it under 200 words
-- End with a clear single call to action
-- Sign as [Agent Name] — never impersonate a specific person
+{rules_block}
 
-Return JSON only. No markdown. No preamble.
-""".strip()
+Return JSON only. No markdown. No preamble."""
 
 
 class EmailService:
@@ -114,7 +110,7 @@ Draft the email. Return:
             response = self._client.messages.create(
                 model=self._model,
                 max_tokens=1024,
-                system=SYSTEM_PROMPT,
+                system=_build_email_system_prompt(),
                 messages=[{"role": "user", "content": prompt}],
             )
         except anthropic.APIError as e:

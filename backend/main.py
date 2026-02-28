@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.logging import get_logger, setup_logging
-from backend.routers import contacts, decisions, contracts, vapi
+from backend.routers import contacts, decisions, contracts, vapi, guidelines
 from backend.services.scheduler import scheduler
 
 setup_logging()
@@ -53,6 +53,7 @@ app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
 app.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
 app.include_router(contracts.router, prefix="/contracts", tags=["contracts"])
 app.include_router(vapi.router, prefix="/vapi", tags=["vapi"])
+app.include_router(guidelines.router, prefix="/guidelines", tags=["guidelines"])
 
 app.add_middleware(
     CORSMiddleware,

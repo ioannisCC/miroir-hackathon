@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.logging import get_logger
+from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -42,7 +43,16 @@ def _build_system_prompt(contact: dict) -> str:
     ]
     debt = profile.get("debt_amount", 0)
 
+    # Fetch live guidelines from Supabase
+    gl = get_guidelines()
+    call_rules = gl["call_rules"]
+    general_context = gl["general_context"]
+
+    # Format call rules as bullet list
+    rules_block = "\n".join(f"- {line.strip()}" for line in call_rules.split("\n") if line.strip())
+
     return f"""You are Miroir, a professional collections specialist.
+{general_context}
 
 CONTACT: {contact.get('name')} <{contact.get('email')}>
 OUTSTANDING DEBT: €{debt:,.0f}
@@ -58,14 +68,8 @@ Risk indicators: {json.dumps(risk_signals)}
 Read this profile carefully. Decide your own tone and strategy based on what you know about this person.
 Adapt mid-call based on their responses.
 
-HARD RULES:
-- Never threaten legal action
-- Never be aggressive or demeaning
-- Keep responses under 3 sentences — this is a voice call
-- Drive toward one specific outcome: a payment commitment with a date
-- If contact is cooperative, offer a payment plan immediately
-- If contact stalls, introduce a specific deadline calmly
-- Always say amounts as natural spoken words — say "five thousand euros" never "5,000" or "5 0 0 0"
+RULES:
+{rules_block}
 
 You know this person. Speak accordingly."""
 

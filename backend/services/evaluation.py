@@ -17,6 +17,7 @@ import anthropic
 from backend.core.config import get_settings
 from backend.core.logging import get_logger
 from backend.services.actions import Action, HARD_RULES, check_hard_rules
+from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 
@@ -29,19 +30,24 @@ Be honest and specific. Explain your reasoning based on observable patterns only
 Return JSON only. No markdown. No preamble.
 """.strip()
 
-PASS2_SYSTEM = """
-You are a compliance-aware collections strategist. You follow company guidelines strictly.
+def _build_pass2_system() -> str:
+    """Build Pass 2 system prompt with live evaluation rules."""
+    gl = get_guidelines()
+    eval_rules = gl["evaluation_rules"]
+    return f"""You are a compliance-aware collections strategist. You follow company guidelines strictly.
 
 You will receive:
 1. A contact's behavioral profile and interaction history
 2. A raw behavioral recommendation (Pass 1)
 3. Company hard rules that cannot be violated
 
-Your job: produce the final approved next action, respecting all hard rules.
-If the Pass 1 recommendation violates a hard rule, override it and explain why.
+COMPANY EVALUATION GUIDELINES:
+{eval_rules}
 
-Return JSON only. No markdown. No preamble.
-""".strip()
+Your job: produce the final approved next action, respecting all hard rules and guidelines.
+If the Pass 1 recommendation violates a hard rule or guideline, override it and explain why.
+
+Return JSON only. No markdown. No preamble."""
 
 
 def _build_context(contact: dict, history: list[dict]) -> str:
@@ -127,9 +133,17 @@ Return:
 def _build_pass2_prompt(context: str, pass1: dict) -> str:
     actions = [a.value for a in Action]
 
+    # Fetch live hard rules from guidelines (with fallback to code defaults)
+    gl = get_guidelines()
+    gl_hard_rules = gl.get("hard_rules", HARD_RULES)
+    enabled_rules = [
+        r for r in gl_hard_rules
+        if isinstance(r, dict) and r.get("enabled", True)
+    ]
+
     # Build a checklist that forces Claude to explicitly check each rule
     rules_checklist = "\n".join(
-        f"[ ] {r['id']}: {r['description']}" for r in HARD_RULES
+        f"[ ] {r['id']}: {r['description']}" for r in enabled_rules
     )
 
     return f"""
@@ -181,7 +195,7 @@ class EvaluationPipeline:
         pass1 = self._call_claude(PASS1_SYSTEM, _build_pass1_prompt(context))
 
         logger.info("Pass 2 evaluation for %s", contact.get("email"))
-        pass2 = self._call_claude(PASS2_SYSTEM, _build_pass2_prompt(context, pass1))
+        pass2 = self._call_claude(_build_pass2_system(), _build_pass2_prompt(context, pass1))
 
         # Validate action
         try:
