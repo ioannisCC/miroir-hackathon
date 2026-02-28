@@ -63,6 +63,7 @@ HARD RULES:
 - Drive toward one specific outcome: a payment commitment with a date
 - If contact is cooperative, offer a payment plan immediately
 - If contact stalls, introduce a specific deadline calmly
+- Always say amounts as natural spoken words — say "five thousand euros" never "5,000" or "5 0 0 0"
 
 You know this person. Speak accordingly."""
 
@@ -211,9 +212,12 @@ async def start_call(contact_id: UUID):
             "voice": {
                 "provider": "11labs",
                 "voiceId": settings.elevenlabs_voice_id,
-                "model": "eleven_v3",
-                "stability": 0.5,
-                "similarityBoost": 0.75,
+                "model": "eleven_turbo_v2_5",
+                "stability": 0.35,
+                "similarityBoost": 0.85,
+                "style": 0.45,
+                "useSpeakerBoost": True,
+                "speed": 0.95,
             },
             "transcriber": {
                 "provider": "deepgram",
@@ -226,6 +230,17 @@ async def start_call(contact_id: UUID):
                 f"Is this a good time to talk?"
             ),
             "endCallPhrases": ["goodbye", "talk soon", "thank you goodbye"],
+            "startSpeakingPlan": {
+                "waitSeconds": 0.4,
+                "smartEndpointingEnabled": True,
+            },
+            "stopSpeakingPlan": {
+                "numWords": 2,
+                "voiceSeconds": 0.3,
+                "backoffSeconds": 0.8,
+            },
+            "silenceTimeoutSeconds": 30,
+            "maxDurationSeconds": 300,
             "serverUrl": f"{settings.backend_url}/vapi/webhook",
         },
         "customer": {

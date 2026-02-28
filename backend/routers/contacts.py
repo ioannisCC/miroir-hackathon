@@ -219,3 +219,72 @@ def execute_action(contact_id: UUID, body: ExecuteActionRequest):
         "summary": summary,
         "transcript": transcript,
     }
+
+class PostCallRequest(BaseModel):
+    transcript: str
+    interaction_id: str | None = None
+
+
+@router.post("/{contact_id}/post-call")
+def post_call_analysis(contact_id: UUID, body: PostCallRequest):
+    """
+    Run post-call analysis on a transcript.
+    Updates behavioral profile in Supabase.
+    Returns before/after delta for dashboard display.
+    """
+    from backend.services.post_call import PostCallAnalyzer
+
+    db = get_db()
+
+    try:
+        contact = (
+            db.table("contacts")
+            .select("*")
+            .eq("id", str(contact_id))
+            .single()
+            .execute()
+            .data
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Contact not found: {e}")
+
+    try:
+        analyzer = PostCallAnalyzer()
+        analysis = analyzer.analyze(contact, body.transcript)
+        result = analyzer.apply_delta(contact, analysis)
+    except Exception as e:
+        logger.error("Post-call analysis failed for %s: %s", contact_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Write updated profile to Supabase
+    try:
+        db.table("contacts").update({
+            "behavior_profile": result["updated_profile"],
+            "trust_score": result["trust_score"],
+            "risk_score": result["risk_score"],
+        }).eq("id", str(contact_id)).execute()
+
+        # Update interaction summary if interaction_id provided
+        if body.interaction_id:
+            db.table("interactions").update({
+                "summary": analysis.get("outcome_notes", "Call analyzed"),
+            }).eq("id", body.interaction_id).execute()
+
+        logger.info(
+            "Profile updated post-call — contact: %s outcome: %s changed: %s",
+            contact.get("email"),
+            analysis.get("outcome"),
+            result["delta"]["changed_fields"],
+        )
+    except Exception as e:
+        logger.error("Failed to write post-call update: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "outcome": analysis.get("outcome"),
+        "outcome_notes": analysis.get("outcome_notes"),
+        "new_signals": analysis.get("new_signals", []),
+        "score_reasoning": analysis.get("score_reasoning", {}),
+        "delta": result["delta"],
+        "contact_id": str(contact_id),
+    }
