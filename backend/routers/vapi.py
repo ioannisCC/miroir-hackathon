@@ -194,6 +194,7 @@ async def start_call(contact_id: UUID):
     phone = contact.get("behavior_profile", {}).get("phone") or DEMO_PHONE
 
     payload = {
+        "phoneNumberId": settings.vapi_phone_number_id,
         "assistant": {
             "model": {
                 "provider": "anthropic",
