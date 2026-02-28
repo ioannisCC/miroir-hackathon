@@ -3,20 +3,18 @@ backend/routers/vapi.py
 
 Vapi integration endpoints.
 
-POST /vapi/chat          — custom LLM endpoint. Vapi sends messages, Claude responds.
-                           Profile injected fresh every turn from Supabase.
-
 POST /vapi/webhook       — receives Vapi call lifecycle events.
                            On call-end: saves transcript to interactions table.
 
 POST /vapi/call/{id}     — initiates outbound call to contact via Vapi API.
-                           Injects contact profile as system prompt override.
+                           Full assistant defined inline — no dashboard config needed.
+                           Claude is the model. ElevenLabs is the voice.
+                           Profile injected as system prompt per contact.
 """
 
 import json
 from uuid import UUID
 
-import anthropic
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
@@ -27,28 +25,12 @@ from backend.core.logging import get_logger
 logger = get_logger(__name__)
 router = APIRouter()
 
-VOICE_MAX_TOKENS = 150
-VAPI_ASSISTANT_ID = "602f278d-3482-4106-80a5-3ddcf18fba9f"
+DEMO_PHONE = "+306986903946"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _decide_tone(profile: dict) -> str:
-    """Pick opening tone from profile scores."""
-    follow_through = profile.get("follow_through_score") or 0.5
-    pressure = profile.get("pressure_score") or 0.5
-
-    if follow_through >= 0.7 and pressure >= 0.6:
-        return "warm and collaborative"
-    elif follow_through < 0.4:
-        return "firm and deadline-focused"
-    elif pressure < 0.4:
-        return "calm and non-confrontational"
-    else:
-        return "professional and direct"
-
 
 def _build_system_prompt(contact: dict) -> str:
     profile = contact.get("behavior_profile", {})
@@ -56,11 +38,9 @@ def _build_system_prompt(contact: dict) -> str:
         r.get("signal") if isinstance(r, dict) else str(r)
         for r in profile.get("risk_indicators", [])
     ]
-    tone = _decide_tone(profile)
     debt = profile.get("debt_amount", 0)
 
-    return f"""
-You are Miroir, a professional collections specialist.
+    return f"""You are Miroir, a professional collections specialist.
 
 CONTACT: {contact.get('name')} <{contact.get('email')}>
 OUTSTANDING DEBT: €{debt:,.0f}
@@ -73,7 +53,8 @@ Follow-through score: {profile.get('follow_through_score')} (1.0 = always follow
 Pressure response: {profile.get('pressure_response', 'Unknown')}
 Risk indicators: {json.dumps(risk_signals)}
 
-APPROACH: Use {tone} tone. Adapt every response to what you know about this person.
+Read this profile carefully. Decide your own tone and strategy based on what you know about this person.
+Adapt mid-call based on their responses.
 
 HARD RULES:
 - Never threaten legal action
@@ -83,12 +64,10 @@ HARD RULES:
 - If contact is cooperative, offer a payment plan immediately
 - If contact stalls, introduce a specific deadline calmly
 
-You know this person. Speak accordingly.
-""".strip()
+You know this person. Speak accordingly."""
 
 
 def _load_contact(contact_id: str) -> dict:
-    """Load contact from Supabase. Raises HTTPException if not found."""
     try:
         db = get_db()
         contact = (
@@ -107,78 +86,6 @@ def _load_contact(contact_id: str) -> dict:
     except Exception as e:
         logger.error("Failed to load contact %s: %s", contact_id, e)
         raise HTTPException(status_code=404, detail=f"Contact not found: {e}")
-
-
-# ---------------------------------------------------------------------------
-# POST /vapi/chat — custom LLM endpoint
-# ---------------------------------------------------------------------------
-
-@router.post("/chat")
-async def vapi_chat(request: Request):
-    """
-    Vapi custom LLM endpoint.
-    Receives conversation turns, injects contact profile, returns Claude response.
-    """
-    try:
-        body = await request.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid request body: {e}")
-
-    messages = body.get("messages", [])
-
-    # Extract contact_id from multiple possible locations Vapi may send it
-    contact_id = (
-        body.get("contact_id")
-        or body.get("metadata", {}).get("contact_id")
-        or body.get("call", {}).get("metadata", {}).get("contact_id")
-    )
-
-    if not contact_id:
-        logger.error("vapi/chat called without contact_id. Body keys: %s", list(body.keys()))
-        raise HTTPException(status_code=400, detail="contact_id required in request or metadata")
-
-    contact = _load_contact(str(contact_id))
-    system_prompt = _build_system_prompt(contact)
-
-    settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-
-    try:
-        response = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=VOICE_MAX_TOKENS,
-            temperature=0.3,
-            system=system_prompt,
-            messages=messages,
-        )
-    except anthropic.APIError as e:
-        logger.error("Claude API error in vapi/chat: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    text_response = response.content[0].text
-
-    logger.info(
-        "Vapi chat — contact: %s input: %d output: %d tokens",
-        contact.get("email"),
-        response.usage.input_tokens,
-        response.usage.output_tokens,
-    )
-
-    return {
-        "id": f"miroir-{response.id}",
-        "object": "chat.completion",
-        "choices": [{
-            "message": {
-                "role": "assistant",
-                "content": text_response,
-            }
-        }],
-        "metadata": {
-            "contact_id": str(contact_id),
-            "profile_summary": contact.get("behavior_profile", {}).get("summary", ""),
-            "tone": _decide_tone(contact.get("behavior_profile", {})),
-        }
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +157,6 @@ async def vapi_webhook(request: Request):
         except Exception as e:
             logger.error("Failed to save transcript for %s: %s", contact_id, e)
 
-            # Dead letter queue
             try:
                 db.table("failed_actions").insert({
                     "contact_id": str(contact_id),
@@ -275,47 +181,63 @@ async def vapi_webhook(request: Request):
 @router.post("/call/{contact_id}")
 async def start_call(contact_id: UUID):
     """
-    Initiate outbound call to contact via Vapi.
-    Injects behavioral profile as system prompt override.
-    Contact ID passed in call metadata so webhook can link transcript.
+    Initiate outbound call via Vapi.
+    Assistant defined fully inline — Claude as model, ElevenLabs as voice.
+    No Vapi dashboard assistant needed.
+    Falls back to DEMO_PHONE if contact has no phone in profile.
     """
     contact = _load_contact(str(contact_id))
     settings = get_settings()
 
     first_name = contact.get("name", "").split()[0]
     system_prompt = _build_system_prompt(contact)
+    phone = contact.get("behavior_profile", {}).get("phone") or DEMO_PHONE
 
     payload = {
-        "assistantId": VAPI_ASSISTANT_ID,
-        "customer": {
-            "number": contact.get("phone", "+30XXXXXXXXXX"),
-        },
-        "metadata": {
-            "contact_id": str(contact_id),
-        },
-        "assistantOverrides": {
+        "assistant": {
             "model": {
-                "provider": "custom-llm",
-                "url": f"{settings.backend_url}/vapi/chat",
-                "model": "miroir",
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-20250514",
                 "temperature": 0.3,
-                "maxTokens": VOICE_MAX_TOKENS,
-                "messages": [{
-                    "role": "system",
-                    "content": system_prompt,
-                }],
+                "maxTokens": 150,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": system_prompt,
+                    }
+                ],
+            },
+            "voice": {
+                "provider": "11labs",
+                "voiceId": settings.elevenlabs_voice_id,
+                "model": "eleven_v3",
+                "stability": 0.5,
+                "similarityBoost": 0.75,
+            },
+            "transcriber": {
+                "provider": "deepgram",
+                "model": "nova-3",
+                "language": "en",
             },
             "firstMessage": (
                 f"Good morning {first_name}. "
                 f"I'm calling regarding an outstanding balance. "
                 f"Is this a good time to talk?"
             ),
-        }
+            "endCallPhrases": ["goodbye", "talk soon", "thank you goodbye"],
+            "serverUrl": f"{settings.backend_url}/vapi/webhook",
+        },
+        "customer": {
+            "number": phone,
+        },
+        "metadata": {
+            "contact_id": str(contact_id),
+        },
     }
 
-    async with httpx.AsyncClient(timeout=10.0) as http:
+    async with httpx.AsyncClient(timeout=15.0) as http:
         r = await http.post(
-            "https://api.vapi.ai/call",
+            "https://api.vapi.ai/call/phone",
             headers={
                 "Authorization": f"Bearer {settings.vapi_api_key}",
                 "Content-Type": "application/json",
@@ -324,14 +246,15 @@ async def start_call(contact_id: UUID):
         )
 
     if r.status_code != 201:
-        logger.error("Vapi call initiation failed: %s", r.text)
+        logger.error("Vapi call failed: %s", r.text)
         raise HTTPException(status_code=500, detail=f"Vapi error: {r.text}")
 
     call_data = r.json()
     logger.info(
-        "Call initiated — vapi_call_id: %s contact: %s",
+        "Call initiated — vapi_call_id: %s contact: %s phone: %s",
         call_data.get("id"),
         contact.get("email"),
+        phone,
     )
 
     return {
@@ -339,4 +262,5 @@ async def start_call(contact_id: UUID):
         "vapi_call_id": call_data.get("id"),
         "contact_id": str(contact_id),
         "contact_name": contact.get("name"),
+        "phone": phone,
     }
