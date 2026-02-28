@@ -42,17 +42,24 @@ BEHAVIORAL PROFILE:
 {profile.get('summary', 'No profile available')}
 
 INTERACTION HISTORY:
-{json.dumps([{{'type': i.get('type'), 'summary': i.get('summary')}} for i in history[-5:]], indent=2)}
+{json.dumps([{'type': i.get('type'), 'summary': i.get('summary')} for i in history[-5:]], indent=2)}
 
 Cover: who this person is, what has been tried, why it is being escalated,
 and what approach the human agent should take.
 """.strip()
 
-    response = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=400,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        response = client.messages.create(
+            model=settings.claude_model,
+            max_tokens=400,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.APIError as e:
+        logger.error("Claude API error generating briefing for %s: %s", contact.get("name"), e)
+        raise
+
+    if not response.content:
+        raise ValueError("Claude returned empty response for briefing")
 
     return response.content[0].text

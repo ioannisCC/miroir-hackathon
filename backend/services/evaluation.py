@@ -70,10 +70,20 @@ def _build_context(contact: dict, history: list[dict]) -> str:
 
     last_interaction_summary = history[-1].get("summary") if history else "None — first contact"
 
+    # Contact's local time for timing-aware reasoning
+    contact_tz = profile.get("timezone") or "UTC"
+    try:
+        from zoneinfo import ZoneInfo
+        local_now = datetime.now(ZoneInfo(contact_tz))
+        local_time_str = local_now.strftime("%A %H:%M") + f" ({contact_tz})"
+    except Exception:
+        local_time_str = "unknown"
+
     return f"""
 CONTACT: {contact.get('name')} <{contact.get('email')}>
 Risk score: {contact.get('risk_score')}
 Trust score: {contact.get('trust_score')}
+Contact local time: {local_time_str}
 
 BEHAVIORAL PROFILE SUMMARY:
 {profile.get('summary', 'No summary available')}
@@ -91,7 +101,7 @@ Days since first contact: {days_since_first_contact}
 Last interaction: {last_interaction_summary}
 
 INTERACTION HISTORY ({len(history)} interactions):
-{json.dumps([{{'type': i.get('type'), 'summary': i.get('summary'), 'timestamp': str(i.get('timestamp'))}} for i in history[-10:]], indent=2)}
+{json.dumps([{'type': i.get('type'), 'summary': i.get('summary'), 'timestamp': str(i.get('timestamp'))} for i in history[-10:]], indent=2)}
 """.strip()
 
 

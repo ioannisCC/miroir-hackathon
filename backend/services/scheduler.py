@@ -23,6 +23,41 @@ logger = get_logger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+def _get_contact_local_hour(contact: dict) -> tuple[int, str]:
+    """
+    Return (current_hour, tz_name) for the contact.
+    Falls back to UTC if no timezone in profile.
+    """
+    from zoneinfo import ZoneInfo
+    profile = contact.get("behavior_profile", {})
+    tz_name = profile.get("timezone") or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+        tz_name = "UTC"
+    now_local = datetime.now(tz)
+    return now_local.hour, tz_name
+
+
+def _next_business_hour_utc(tz_name: str) -> str:
+    """
+    Return ISO timestamp of the next 09:00 in the contact's timezone.
+    """
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    now_local = datetime.now(tz)
+    # Next 09:00 — if it's before 09:00 today, use today; otherwise tomorrow
+    if now_local.hour < 9:
+        next_9 = now_local.replace(hour=9, minute=0, second=0, microsecond=0)
+    else:
+        next_9 = (now_local + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    return next_9.astimezone(timezone.utc).isoformat()
+
+
 async def _execute_due_action(follow_up: dict) -> None:
     settings = get_settings()
     db = get_db()
@@ -30,6 +65,35 @@ async def _execute_due_action(follow_up: dict) -> None:
     contact_id = follow_up["contact_id"]
     action_type = follow_up["action_type"]
     follow_up_id = follow_up["id"]
+
+    # --- Business hours gate for outbound contact actions ---
+    outbound_actions = {"send_email", "send_sms", "escalate_to_call"}
+    if action_type in outbound_actions:
+        try:
+            contact = (
+                db.table("contacts")
+                .select("*")
+                .eq("id", str(contact_id))
+                .single()
+                .execute()
+                .data
+            )
+            if contact:
+                local_hour, tz_name = _get_contact_local_hour(contact)
+                if local_hour < 9 or local_hour >= 18:
+                    # Outside business hours — reschedule to next 09:00 local
+                    next_slot = _next_business_hour_utc(tz_name)
+                    db.table("follow_ups").update({
+                        "scheduled_at": next_slot,
+                    }).eq("id", follow_up_id).execute()
+                    logger.info(
+                        "Scheduler deferred — contact: %s action: %s reason: outside business hours "
+                        "(local hour: %d, tz: %s). Rescheduled to %s",
+                        contact_id, action_type, local_hour, tz_name, next_slot,
+                    )
+                    return  # Skip execution — will fire at next valid window
+        except Exception as e:
+            logger.warning("Business hours check failed (proceeding anyway): %s", e)
 
     logger.info(
         "Scheduler firing — contact: %s action: %s",

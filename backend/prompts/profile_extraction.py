@@ -84,6 +84,7 @@ Extract a behavioral profile. Return this exact JSON structure:
   "risk_indicators": [
     {{"signal": "<specific observable behavior>", "severity": <0.0-1.0>, "source": "thread_<N>_msg_<M>"}}
   ],
+  "timezone": "<IANA timezone inferred from email timestamps, headers, or location clues e.g. America/Chicago, Europe/London. Use UTC if uncertain>",
   "summary": "<2-3 sentences: what matters most about how this person communicates>",
   "data_quality_notes": "<honest assessment: how many threads, what is missing, confidence level>"
 }}
@@ -127,6 +128,7 @@ Synthesize these {len(partial_profiles)} partial behavioral profiles for: {name}
 Each partial was extracted from one email conversation. 
 Merge them into one final profile using the same JSON schema.
 Where partials contradict each other, include both observations in the narrative.
+For timezone: pick the most evidenced one. If conflicting, use the one from the most recent emails.
 
 {profiles_text}
 """.strip()

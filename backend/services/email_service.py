@@ -69,8 +69,19 @@ class EmailService:
             indent=2,
         )
 
+        # Contact's local time for time-appropriate greetings
+        contact_tz = profile.get("timezone") or "UTC"
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import datetime
+            local_now = datetime.now(ZoneInfo(contact_tz))
+            local_time_str = local_now.strftime("%A %H:%M") + f" ({contact_tz})"
+        except Exception:
+            local_time_str = "unknown"
+
         prompt = f"""
 Draft a collections email for: {contact.get('name')} <{contact.get('email')}>
+Contact's current local time: {local_time_str}
 Debt amount: €{debt:,.0f}
 
 Emails sent so far: {len(prior_emails)}

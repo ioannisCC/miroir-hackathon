@@ -92,6 +92,9 @@ class BehaviorProfile(BaseModel):
     trust_indicators: list[ProfileSignal] = Field(default_factory=list)
     risk_indicators: list[ProfileSignal] = Field(default_factory=list)
 
+    # Timing
+    timezone: str = "Europe/Athens"  # IANA timezone — default for demo contacts
+
     # Meta
     summary: str = ""
     data_quality_notes: str = ""
