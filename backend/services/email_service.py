@@ -59,7 +59,13 @@ class EmailService:
         ]
 
         prior_emails_block = json.dumps(
-            [{"summary": i.get("summary"), "transcript": (i.get("transcript", "") or "")[:200]} for i in prior_emails],
+            [
+                {
+                    "summary": str(i.get("summary") or ""),
+                    "transcript": str(i.get("transcript") or "")[:200],
+                }
+                for i in prior_emails
+            ],
             indent=2,
         )
 
@@ -82,7 +88,7 @@ Trust score: {contact.get('trust_score')}
 Risk score: {contact.get('risk_score')}
 
 PRIOR INTERACTIONS:
-{json.dumps([{{'type': i.get('type'), 'summary': i.get('summary')}} for i in interaction_history[-5:]], indent=2)}
+{json.dumps([{{'type': str(i.get('type') or ''), 'summary': str(i.get('summary') or '')}} for i in interaction_history[-5:]], indent=2)}
 
 Draft the email. Return:
 {{
