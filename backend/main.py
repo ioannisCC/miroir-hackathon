@@ -22,34 +22,33 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     settings = get_settings()
     logger.info("Starting Miroir — environment: %s", settings.environment)
 
-    # Validate Supabase connection on startup
     try:
         get_db()
         logger.info("Supabase connection verified")
     except Exception as e:
         logger.error("Supabase connection failed: %s", e)
         raise
-    
+
+    # Autonomous scheduler — dormant until follow_ups table has rows
     scheduler.start()
     logger.info("Autonomous scheduler started — checking every 60 seconds")
-    
+
     yield
 
     scheduler.shutdown()
-    # Shutdown
     logger.info("Miroir shutting down")
 
 
 app = FastAPI(
     title="Miroir",
-    description="Stateful AI collections operator with audit logs and replayable decisions",
+    description="Behavioral intelligence layer — autonomous collections operator",
     version="0.1.0",
     lifespan=lifespan,
 )
+
 app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
 app.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
 app.include_router(contracts.router, prefix="/contracts", tags=["contracts"])
@@ -57,7 +56,7 @@ app.include_router(vapi.router, prefix="/vapi", tags=["vapi"])
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten post-hackathon
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,8 +72,3 @@ def health():
         "supabase": settings.supabase_configured,
         "vapi": settings.vapi_configured,
     }
-
-
-# Routers registered here as we build them
-# from backend.routers import contacts, decisions, contracts, vapi
-# app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])

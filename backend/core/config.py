@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     min_threads_for_profile: int = 10
     max_threads_per_contact: int = 10
 
+    ## --- Resend (email sending service) ---
+    resend_api_key: str = ""
+    demo_email: str = "ioanniscatargiu@gmail.com"
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

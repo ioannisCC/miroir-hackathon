@@ -167,15 +167,29 @@ def execute_action(contact_id: UUID, body: ExecuteActionRequest):
     summary = f"Action executed: {body.action}"
     transcript = ""
 
-    # Draft email content if action is send_email
+    # Draft and SEND email if action is send_email
     if body.action == "send_email":
         try:
+            from backend.services.email_sender import send_email as _send
+            from backend.core.config import get_settings
+
             service = EmailService()
             draft = service.draft_email(contact, history)
             transcript = f"Subject: {draft.get('subject')}\n\n{draft.get('body')}"
             summary = f"Email sent ({draft.get('tone')} tone) — {draft.get('tone_notes')}"
+
+            settings = get_settings()
+            recipient = contact.get("email") or settings.demo_email
+            _send(
+                to=recipient,
+                subject=draft.get("subject"),
+                body=draft.get("body"),
+                contact_name=contact.get("name"),
+            )
+            logger.info("Email sent to %s", recipient)
+
         except Exception as e:
-            logger.error("Email draft failed during execute: %s", e)
+            logger.error("Email send failed: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
     # Log interaction

@@ -2,12 +2,15 @@
 backend/services/scheduler.py
 
 Autonomous action scheduler.
-Runs every minute. Checks follow_ups table for due actions.
-Dormant until a follow_up row exists — the table is the switch.
+Runs every 60 seconds. Checks follow_ups table for due actions.
+Completely dormant until a row exists in follow_ups — the table is the switch.
+
+To trigger a live demo:
+    insert into follow_ups (contact_id, scheduled_at, action_type, status)
+    values ('<contact_id>', now() + interval '2 minutes', 'escalate_to_call', 'pending');
 """
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -23,6 +26,7 @@ scheduler = AsyncIOScheduler()
 async def _execute_due_action(follow_up: dict) -> None:
     settings = get_settings()
     db = get_db()
+
     contact_id = follow_up["contact_id"]
     action_type = follow_up["action_type"]
     follow_up_id = follow_up["id"]
@@ -33,7 +37,7 @@ async def _execute_due_action(follow_up: dict) -> None:
         action_type,
     )
 
-    # Mark as processing immediately — prevents double fire
+    # Mark as processing immediately — prevents double fire on next cycle
     db.table("follow_ups").update({
         "status": "processing",
     }).eq("id", follow_up_id).execute()
@@ -54,14 +58,22 @@ async def _execute_due_action(follow_up: dict) -> None:
                 )
                 r.raise_for_status()
 
+            elif action_type == "escalate_to_human":
+                # Log to interactions — human picks it up from dashboard
+                r = await http.post(
+                    f"{settings.backend_url}/contacts/{contact_id}/execute-action",
+                    json={"action": "escalate_to_human"},
+                )
+                r.raise_for_status()
+
             elif action_type == "evaluate":
-                # Run evaluation — engine decides what to do next
+                # Run full evaluation — engine decides what happens next
                 r = await http.post(
                     f"{settings.backend_url}/decisions/evaluate/{contact_id}",
                 )
                 r.raise_for_status()
 
-        # Mark done
+        # Mark completed
         db.table("follow_ups").update({
             "status": "completed",
         }).eq("id", follow_up_id).execute()
@@ -79,7 +91,7 @@ async def _execute_due_action(follow_up: dict) -> None:
             action_type,
             e,
         )
-        # Mark failed — visible in table
+
         db.table("follow_ups").update({
             "status": "failed",
         }).eq("id", follow_up_id).execute()
@@ -98,12 +110,11 @@ async def _execute_due_action(follow_up: dict) -> None:
             pass
 
 
-@scheduler.scheduled_job("interval", minutes=1)
+@scheduler.scheduled_job("interval", seconds=60)
 async def autonomous_cycle():
     """
-    Runs every minute.
-    Table empty = does nothing.
-    Row present with scheduled_at <= now = fires action.
+    Runs every 60 seconds.
+    Empty table = silent. Row present with scheduled_at <= now = fires.
     """
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()

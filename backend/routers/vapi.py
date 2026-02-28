@@ -4,7 +4,8 @@ backend/routers/vapi.py
 Vapi integration endpoints.
 
 POST /vapi/webhook       — receives Vapi call lifecycle events.
-                           On call-end: saves transcript to interactions table.
+                           On call-end: saves transcript, runs post-call analysis,
+                           updates profile, schedules next follow-up automatically.
 
 POST /vapi/call/{id}     — initiates outbound call to contact via Vapi API.
                            Full assistant defined inline — no dashboard config needed.
@@ -13,6 +14,7 @@ POST /vapi/call/{id}     — initiates outbound call to contact via Vapi API.
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import httpx
@@ -97,8 +99,10 @@ def _load_contact(contact_id: str) -> dict:
 async def vapi_webhook(request: Request):
     """
     Vapi call lifecycle webhook.
-    On end-of-call-report: saves transcript to interactions table.
-    Failed writes go to failed_actions dead letter queue.
+    On end-of-call-report:
+      1. Save transcript to interactions table
+      2. Run post-call analysis — updates behavioral profile
+      3. Schedule next follow-up automatically based on outcome
     """
     try:
         body = await request.json()
@@ -134,6 +138,7 @@ async def vapi_webhook(request: Request):
 
         db = get_db()
 
+        # Step 1 — Save transcript
         try:
             result = db.table("interactions").insert({
                 "contact_id": str(contact_id),
@@ -143,21 +148,10 @@ async def vapi_webhook(request: Request):
             }).execute()
 
             interaction_id = result.data[0]["id"] if result.data else None
-            logger.info(
-                "Transcript saved — contact: %s interaction: %s",
-                contact_id,
-                interaction_id,
-            )
-
-            return {
-                "status": "saved",
-                "contact_id": str(contact_id),
-                "interaction_id": interaction_id,
-            }
+            logger.info("Transcript saved — contact: %s interaction: %s", contact_id, interaction_id)
 
         except Exception as e:
-            logger.error("Failed to save transcript for %s: %s", contact_id, e)
-
+            logger.error("Failed to save transcript: %s", e)
             try:
                 db.table("failed_actions").insert({
                     "contact_id": str(contact_id),
@@ -169,8 +163,114 @@ async def vapi_webhook(request: Request):
                 }).execute()
             except Exception:
                 pass
-
             raise HTTPException(status_code=500, detail=str(e))
+
+        # Step 2 — Post-call analysis (non-fatal)
+        outcome = "other"
+        delta = {}
+
+        if transcript:
+            try:
+                from backend.services.post_call import PostCallAnalyzer
+
+                contact = _load_contact(str(contact_id))
+                analyzer = PostCallAnalyzer()
+                analysis = analyzer.analyze(contact, transcript)
+                result_delta = analyzer.apply_delta(contact, analysis)
+                outcome = analysis.get("outcome", "other")
+                delta = result_delta.get("delta", {})
+
+                # Update profile scores
+                db.table("contacts").update({
+                    "behavior_profile": result_delta["updated_profile"],
+                    "trust_score": result_delta["trust_score"],
+                    "risk_score": result_delta["risk_score"],
+                }).eq("id", str(contact_id)).execute()
+
+                # Update interaction summary
+                if interaction_id:
+                    db.table("interactions").update({
+                        "summary": analysis.get("outcome_notes", summary),
+                    }).eq("id", interaction_id).execute()
+
+                logger.info(
+                    "Profile updated — contact: %s outcome: %s changed: %s",
+                    contact_id,
+                    outcome,
+                    delta.get("changed_fields", []),
+                )
+
+                # Step 3 — Schedule next follow-up based on outcome
+                outcome_to_next = {
+                    "promise_to_pay":      ("evaluate",          7),
+                    "payment_plan_agreed": ("evaluate",         14),
+                    "no_answer":           ("escalate_to_call",  3),
+                    "callback_scheduled":  ("escalate_to_call",  2),
+                    "refused_engagement":  ("escalate_to_human", 0),
+                    "paid_now":            None,
+                    "other":               ("evaluate",          4),
+                }
+
+                next_config = outcome_to_next.get(outcome, ("evaluate", 4))
+
+                if next_config is not None:
+                    next_action, delay_days = next_config
+                    scheduled_at = (
+                        datetime.now(timezone.utc) + timedelta(days=delay_days)
+                    ).isoformat()
+
+                    db.table("follow_ups").insert({
+                        "contact_id": str(contact_id),
+                        "scheduled_at": scheduled_at,
+                        "action_type": next_action,
+                        "status": "pending",
+                    }).execute()
+
+                    logger.info(
+                        "Follow-up scheduled — contact: %s action: %s in %d days",
+                        contact_id, next_action, delay_days,
+                    )
+
+                # Send human-escalation briefing email for refused_engagement
+                if outcome == "refused_engagement":
+                    try:
+                        from backend.services.human_escalation import generate_briefing
+                        from backend.services.email_sender import send_email as _send
+
+                        history = (
+                            db.table("interactions")
+                            .select("*")
+                            .eq("contact_id", str(contact_id))
+                            .order("timestamp")
+                            .execute()
+                            .data or []
+                        )
+
+                        briefing = generate_briefing(contact, history)
+
+                        _send(
+                            to="ioanniscatargiu@outlook.com",
+                            subject=f"🚨 Human Escalation Required — {contact.get('name')}",
+                            body=briefing,
+                            contact_name=contact.get("name"),
+                        )
+
+                        logger.info("Human escalation briefing sent for %s", contact.get("name"))
+
+                    except Exception as e:
+                        logger.error("Failed to send escalation briefing: %s", e)
+                        # Non-fatal — escalation already logged
+
+            except Exception as e:
+                logger.error("Post-call analysis failed (non-fatal): %s", e)
+
+        return {
+            "status": "saved",
+            "contact_id": str(contact_id),
+            "interaction_id": interaction_id,
+            "outcome": outcome,
+            "delta": delta,
+        }
 
     return {"status": "ok", "event": event_type}
 
