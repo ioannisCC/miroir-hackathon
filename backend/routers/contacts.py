@@ -179,7 +179,9 @@ def execute_action(contact_id: UUID, body: ExecuteActionRequest):
             summary = f"Email sent ({draft.get('tone')} tone) — {draft.get('tone_notes')}"
 
             settings = get_settings()
-            recipient = contact.get("email") or settings.demo_email
+            # Resend testing mode: can only send to verified account email
+            # Switch to contact.get("email") after verifying a domain at resend.com/domains
+            recipient = settings.demo_email
             _send(
                 to=recipient,
                 subject=draft.get("subject"),

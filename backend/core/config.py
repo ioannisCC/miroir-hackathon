@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     ## --- Resend (email sending service) ---
     resend_api_key: str = ""
-    demo_email: str = "ioanniscatargiu@gmail.com"
+    demo_email: str = "ioanniscatargiu@outlook.com"
 
     @property
     def is_production(self) -> bool:
