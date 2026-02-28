@@ -128,26 +128,29 @@ function ContactDetailPage() {
             <button
               type="button"
               onClick={handleStartCall}
-              className="rounded-lg bg-[var(--lagoon)] px-4 py-2 font-medium text-white hover:opacity-90"
+              className="flex items-center gap-2 rounded-lg bg-[var(--lagoon)] px-4 py-2 font-medium text-white hover:opacity-90"
             >
               Listen in call
+              <span className="flex items-end gap-0.5" aria-label="Audio streaming">
+                {[
+                  { name: 'audio-bar-1', duration: 0.55 },
+                  { name: 'audio-bar-2', duration: 0.7 },
+                  { name: 'audio-bar-3', duration: 0.5 },
+                  { name: 'audio-bar-4', duration: 0.65 },
+                  { name: 'audio-bar-5', duration: 0.6 },
+                ].map(({ name, duration }, i) => (
+                  <span
+                    key={i}
+                    className="w-1 rounded-full bg-white/90 origin-bottom"
+                    style={{
+                      height: '10px',
+                      animation: `${name} ${duration}s ease-in-out infinite`,
+                      animationDelay: `${i * 0.12}s`,
+                    }}
+                  />
+                ))}
+              </span>
             </button>
-          )}
-          {/* Animated audio stream icon — hidden when call is in progress */}
-          {!callLive && (
-            <span className="flex items-end gap-0.5" aria-label="Audio streaming">
-              {[0, 1, 2, 3, 4].map((i) => (
-                <span
-                  key={i}
-                  className="w-1 rounded-full bg-[var(--lagoon)] origin-bottom"
-                  style={{
-                    height: '12px',
-                    animation: 'audio-bar 0.6s ease-in-out infinite',
-                    animationDelay: `${i * 0.1}s`,
-                  }}
-                />
-              ))}
-            </span>
           )}
           {callLive && listening && (
             <>

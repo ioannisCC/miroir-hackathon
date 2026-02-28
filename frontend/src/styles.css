@@ -337,14 +337,38 @@ a {
   background: color-mix(in oklab, var(--header-bg) 84%, transparent 16%);
 }
 
-@keyframes audio-bar {
-  0%,
-  100% {
-    transform: scaleY(0.4);
-  }
-  50% {
-    transform: scaleY(1);
-  }
+/* Voice bars: irregular keyframes so the animation looks more random */
+@keyframes audio-bar-1 {
+  0%, 100% { transform: scaleY(0.35); }
+  20% { transform: scaleY(0.75); }
+  40% { transform: scaleY(0.45); }
+  60% { transform: scaleY(0.95); }
+  80% { transform: scaleY(0.5); }
+}
+@keyframes audio-bar-2 {
+  0%, 100% { transform: scaleY(0.6); }
+  25% { transform: scaleY(0.3); }
+  50% { transform: scaleY(0.9); }
+  75% { transform: scaleY(0.4); }
+}
+@keyframes audio-bar-3 {
+  0%, 100% { transform: scaleY(0.4); }
+  15% { transform: scaleY(0.85); }
+  35% { transform: scaleY(0.55); }
+  65% { transform: scaleY(0.7); }
+  85% { transform: scaleY(0.35); }
+}
+@keyframes audio-bar-4 {
+  0%, 100% { transform: scaleY(0.5); }
+  30% { transform: scaleY(0.25); }
+  55% { transform: scaleY(1); }
+  70% { transform: scaleY(0.6); }
+}
+@keyframes audio-bar-5 {
+  0%, 100% { transform: scaleY(0.45); }
+  40% { transform: scaleY(0.8); }
+  60% { transform: scaleY(0.3); }
+  80% { transform: scaleY(0.65); }
 }
 
 @keyframes intervene-glow {
