@@ -31,7 +31,7 @@ class Settings(BaseSettings):
 
     # --- Vapi ---
     vapi_api_key: str = ""
-    vapi_phone_number_id: str = ""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
     backend_url: str = "http://localhost:8000"  # for Vapi callbacks
 
     # --- App ---
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     @property
     def vapi_configured(self) -> bool:
-        return bool(self.vapi_api_key and self.vapi_phone_number_id)
+        return bool(self.vapi_api_key)
 
 
 @lru_cache
