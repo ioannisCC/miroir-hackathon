@@ -64,6 +64,21 @@ uv run python scripts/push_profiles_to_supabase.py
 
 ---
 
+## Run the frontend
+
+From the project root:
+
+```bash
+cd frontend
+nvm use
+pnpm install
+pnpm dev
+```
+
+The app will be available at `http://localhost:3000` (or the port shown in the terminal).
+
+---
+
 ## Frontend (file uploads)
 
 The frontend uses [UploadThing](https://uploadthing.com) for client-context file uploads (PDF, CSV, Word). To enable uploads:
