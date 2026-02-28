@@ -14,6 +14,7 @@ from backend.core.config import get_settings
 from backend.core.database import get_db
 from backend.core.logging import get_logger, setup_logging
 from backend.routers import contacts, decisions, contracts, vapi
+from backend.services.scheduler import scheduler
 
 setup_logging()
 logger = get_logger(__name__)
@@ -32,9 +33,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Supabase connection failed: %s", e)
         raise
-
+    
+    scheduler.start()
+    logger.info("Autonomous scheduler started — checking every 60 seconds")
+    
     yield
 
+    scheduler.shutdown()
     # Shutdown
     logger.info("Miroir shutting down")
 
