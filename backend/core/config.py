@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
     backend_url: str = "http://localhost:8000"  # for Vapi callbacks
 
+    # --- Voice Provider ---
+    voice_provider: str = "elevenlabs"  # "elevenlabs" or "vapi"
+
+    # --- ElevenLabs ---
+    elevenlabs_api_key: str = ""
+    elevenlabs_agent_id: str = "agent_6101kjk6qksyfkea6ef3k7beccxd"
+    elevenlabs_phone_number_id: str = "phnum_2001kjk6eptde3fv9dex21vhsdz9"
+
     # --- App ---
     environment: str = "development"
     log_level: str = "INFO"

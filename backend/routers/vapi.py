@@ -1,16 +1,12 @@
 """
 backend/routers/vapi.py
 
-Vapi integration endpoints.
+Voice call endpoints.
+VOICE_PROVIDER=elevenlabs → ElevenLabs outbound call
+VOICE_PROVIDER=vapi       → Vapi outbound call
 
-POST /vapi/webhook       — receives Vapi call lifecycle events.
-                           On call-end: saves transcript, runs post-call analysis,
-                           updates profile, schedules next follow-up automatically.
-
-POST /vapi/call/{id}     — initiates outbound call to contact via Vapi API.
-                           Full assistant defined inline — no dashboard config needed.
-                           Claude is the model. ElevenLabs is the voice.
-                           Profile injected as system prompt per contact.
+POST /vapi/call/{contact_id} — unified endpoint, routes based on config
+POST /vapi/webhook           — handles both Vapi and ElevenLabs events
 """
 
 import json
@@ -32,7 +28,7 @@ DEMO_PHONE = "+306986903946"
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 def _build_system_prompt(contact: dict) -> str:
@@ -96,202 +92,76 @@ def _load_contact(contact_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# POST /vapi/webhook — call lifecycle events
+# ElevenLabs outbound call
 # ---------------------------------------------------------------------------
 
-@router.post("/webhook")
-async def vapi_webhook(request: Request):
-    """
-    Vapi call lifecycle webhook.
-    On end-of-call-report:
-      1. Save transcript to interactions table
-      2. Run post-call analysis — updates behavioral profile
-      3. Schedule next follow-up automatically based on outcome
-    """
-    try:
-        body = await request.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid webhook body: {e}")
+async def _start_call_elevenlabs(contact: dict, contact_id: str) -> dict:
+    settings = get_settings()
 
-    event_type = (
-        body.get("message", {}).get("type")
-        or body.get("type", "")
-    )
+    first_name = contact.get("name", "").split()[0]
+    system_prompt = _build_system_prompt(contact)
+    phone = contact.get("behavior_profile", {}).get("phone") or DEMO_PHONE
 
-    contact_id = (
-        body.get("message", {}).get("call", {}).get("metadata", {}).get("contact_id")
-        or body.get("call", {}).get("metadata", {}).get("contact_id")
-        or body.get("metadata", {}).get("contact_id")
-    )
-
-    logger.info("Vapi webhook — event: %s contact: %s", event_type, contact_id)
-
-    if event_type in ("end-of-call-report", "call-ended"):
-        if not contact_id:
-            logger.warning("end-of-call-report missing contact_id")
-            return {"status": "ignored", "reason": "no contact_id"}
-
-        transcript = (
-            body.get("message", {}).get("transcript")
-            or body.get("transcript", "")
-        )
-        summary = (
-            body.get("message", {}).get("summary")
-            or body.get("summary", "Call completed")
-        )
-
-        db = get_db()
-
-        # Step 1 — Save transcript
-        try:
-            result = db.table("interactions").insert({
-                "contact_id": str(contact_id),
-                "type": "call",
-                "transcript": transcript,
-                "summary": summary,
-            }).execute()
-
-            interaction_id = result.data[0]["id"] if result.data else None
-            logger.info("Transcript saved — contact: %s interaction: %s", contact_id, interaction_id)
-
-        except Exception as e:
-            logger.error("Failed to save transcript: %s", e)
-            try:
-                db.table("failed_actions").insert({
-                    "contact_id": str(contact_id),
-                    "action_type": "save_call_transcript",
-                    "payload": body,
-                    "error_message": str(e),
-                    "retry_count": 0,
-                    "status": "pending",
-                }).execute()
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail=str(e))
-
-        # Step 2 — Post-call analysis (non-fatal)
-        outcome = "other"
-        delta = {}
-
-        if transcript:
-            try:
-                from backend.services.post_call import PostCallAnalyzer
-
-                contact = _load_contact(str(contact_id))
-                analyzer = PostCallAnalyzer()
-                analysis = analyzer.analyze(contact, transcript)
-                result_delta = analyzer.apply_delta(contact, analysis)
-                outcome = analysis.get("outcome", "other")
-                delta = result_delta.get("delta", {})
-
-                # Update profile scores
-                db.table("contacts").update({
-                    "behavior_profile": result_delta["updated_profile"],
-                    "trust_score": result_delta["trust_score"],
-                    "risk_score": result_delta["risk_score"],
-                }).eq("id", str(contact_id)).execute()
-
-                # Update interaction summary
-                if interaction_id:
-                    db.table("interactions").update({
-                        "summary": analysis.get("outcome_notes", summary),
-                    }).eq("id", interaction_id).execute()
-
-                logger.info(
-                    "Profile updated — contact: %s outcome: %s changed: %s",
-                    contact_id,
-                    outcome,
-                    delta.get("changed_fields", []),
-                )
-
-                # Step 3 — Schedule next follow-up based on outcome
-                outcome_to_next = {
-                    "promise_to_pay":      ("evaluate",          7),
-                    "payment_plan_agreed": ("evaluate",         14),
-                    "no_answer":           ("escalate_to_call",  3),
-                    "callback_scheduled":  ("escalate_to_call",  2),
-                    "refused_engagement":  ("escalate_to_human", 0),
-                    "paid_now":            None,
-                    "other":               ("evaluate",          4),
+    payload = {
+        "agent_id": settings.elevenlabs_agent_id,
+        "agent_phone_number_id": settings.elevenlabs_phone_number_id,
+        "to_number": phone,
+        "conversation_initiation_client_data": {
+            "dynamic_variables": {
+                "contact_id": contact_id,
+            },
+            "conversation_config_override": {
+                "agent": {
+                    "prompt": {
+                        "prompt": system_prompt,
+                    },
+                    "first_message": (
+                        f"Good morning {first_name}. "
+                        f"I'm calling regarding an outstanding balance. "
+                        f"Is this a good time to talk?"
+                    ),
                 }
+            },
+        },
+    }
 
-                next_config = outcome_to_next.get(outcome, ("evaluate", 4))
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        r = await http.post(
+            "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
+            headers={
+                "xi-api-key": settings.elevenlabs_api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
 
-                if next_config is not None:
-                    next_action, delay_days = next_config
-                    scheduled_at = (
-                        datetime.now(timezone.utc) + timedelta(days=delay_days)
-                    ).isoformat()
+    if r.status_code not in (200, 201):
+        logger.error("ElevenLabs call failed: %s", r.text)
+        raise HTTPException(status_code=500, detail=f"ElevenLabs error: {r.text}")
 
-                    db.table("follow_ups").insert({
-                        "contact_id": str(contact_id),
-                        "scheduled_at": scheduled_at,
-                        "action_type": next_action,
-                        "status": "pending",
-                    }).execute()
+    call_data = r.json()
+    logger.info(
+        "ElevenLabs call initiated — conversation_id: %s contact: %s phone: %s",
+        call_data.get("conversation_id"),
+        contact.get("email"),
+        phone,
+    )
 
-                    logger.info(
-                        "Follow-up scheduled — contact: %s action: %s in %d days",
-                        contact_id, next_action, delay_days,
-                    )
-
-                # Send human-escalation briefing email for refused_engagement
-                if outcome == "refused_engagement":
-                    try:
-                        from backend.services.human_escalation import generate_briefing
-                        from backend.services.email_sender import send_email as _send
-
-                        history = (
-                            db.table("interactions")
-                            .select("*")
-                            .eq("contact_id", str(contact_id))
-                            .order("timestamp")
-                            .execute()
-                            .data or []
-                        )
-
-                        briefing = generate_briefing(contact, history)
-
-                        _send(
-                            to="ioanniscatargiu@outlook.com",
-                            subject=f"🚨 Human Escalation Required — {contact.get('name')}",
-                            body=briefing,
-                            contact_name=contact.get("name"),
-                        )
-
-                        logger.info("Human escalation briefing sent for %s", contact.get("name"))
-
-                    except Exception as e:
-                        logger.error("Failed to send escalation briefing: %s", e)
-                        # Non-fatal — escalation already logged
-
-            except Exception as e:
-                logger.error("Post-call analysis failed (non-fatal): %s", e)
-
-        return {
-            "status": "saved",
-            "contact_id": str(contact_id),
-            "interaction_id": interaction_id,
-            "outcome": outcome,
-            "delta": delta,
-        }
-
-    return {"status": "ok", "event": event_type}
+    return {
+        "status": "calling",
+        "provider": "elevenlabs",
+        "conversation_id": call_data.get("conversation_id"),
+        "contact_id": contact_id,
+        "contact_name": contact.get("name"),
+        "phone": phone,
+    }
 
 
 # ---------------------------------------------------------------------------
-# POST /vapi/call/{contact_id} — initiate outbound call
+# Vapi outbound call
 # ---------------------------------------------------------------------------
 
-@router.post("/call/{contact_id}")
-async def start_call(contact_id: UUID):
-    """
-    Initiate outbound call via Vapi.
-    Assistant defined fully inline — Claude as model, ElevenLabs as voice.
-    No Vapi dashboard assistant needed.
-    Falls back to DEMO_PHONE if contact has no phone in profile.
-    """
-    contact = _load_contact(str(contact_id))
+async def _start_call_vapi(contact: dict, contact_id: str) -> dict:
     settings = get_settings()
 
     first_name = contact.get("name", "").split()[0]
@@ -306,12 +176,7 @@ async def start_call(contact_id: UUID):
                 "model": "claude-sonnet-4-20250514",
                 "temperature": 0.3,
                 "maxTokens": 150,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": system_prompt,
-                    }
-                ],
+                "messages": [{"role": "system", "content": system_prompt}],
             },
             "voice": {
                 "provider": "11labs",
@@ -334,25 +199,14 @@ async def start_call(contact_id: UUID):
                 f"Is this a good time to talk?"
             ),
             "endCallPhrases": ["goodbye", "talk soon", "thank you goodbye"],
-            "startSpeakingPlan": {
-                "waitSeconds": 0.4,
-                "smartEndpointingEnabled": True,
-            },
-            "stopSpeakingPlan": {
-                "numWords": 2,
-                "voiceSeconds": 0.3,
-                "backoffSeconds": 0.8,
-            },
+            "startSpeakingPlan": {"waitSeconds": 0.4, "smartEndpointingEnabled": True},
+            "stopSpeakingPlan": {"numWords": 2, "voiceSeconds": 0.3, "backoffSeconds": 0.8},
             "silenceTimeoutSeconds": 30,
             "maxDurationSeconds": 300,
             "serverUrl": f"{settings.backend_url}/vapi/webhook",
         },
-        "customer": {
-            "number": phone,
-        },
-        "metadata": {
-            "contact_id": str(contact_id),
-        },
+        "customer": {"number": phone},
+        "metadata": {"contact_id": contact_id},
     }
 
     async with httpx.AsyncClient(timeout=15.0) as http:
@@ -371,7 +225,7 @@ async def start_call(contact_id: UUID):
 
     call_data = r.json()
     logger.info(
-        "Call initiated — vapi_call_id: %s contact: %s phone: %s",
+        "Vapi call initiated — call_id: %s contact: %s phone: %s",
         call_data.get("id"),
         contact.get("email"),
         phone,
@@ -379,8 +233,256 @@ async def start_call(contact_id: UUID):
 
     return {
         "status": "calling",
+        "provider": "vapi",
         "vapi_call_id": call_data.get("id"),
-        "contact_id": str(contact_id),
+        "contact_id": contact_id,
         "contact_name": contact.get("name"),
         "phone": phone,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Unified call endpoint — routes based on VOICE_PROVIDER config
+# ---------------------------------------------------------------------------
+
+@router.post("/call/{contact_id}")
+async def start_call(contact_id: UUID):
+    """
+    Initiate outbound call.
+    Routes to ElevenLabs or Vapi based on VOICE_PROVIDER setting.
+    Switch providers by changing VOICE_PROVIDER env var — no code changes.
+    """
+    contact = _load_contact(str(contact_id))
+    settings = get_settings()
+
+    logger.info(
+        "Starting call — provider: %s contact: %s",
+        settings.voice_provider,
+        contact.get("email"),
+    )
+
+    if settings.voice_provider == "elevenlabs":
+        return await _start_call_elevenlabs(contact, str(contact_id))
+    else:
+        return await _start_call_vapi(contact, str(contact_id))
+
+
+# ---------------------------------------------------------------------------
+# Webhook — handles both Vapi and ElevenLabs event formats
+# ---------------------------------------------------------------------------
+
+@router.post("/webhook")
+async def vapi_webhook(request: Request):
+    """
+    Unified webhook for Vapi and ElevenLabs call lifecycle events.
+    On call end:
+      1. Save transcript
+      2. Post-call analysis — updates profile
+      3. Schedule next follow-up automatically
+      4. Send human escalation briefing if refused_engagement
+    """
+    try:
+        body = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid webhook body: {e}")
+
+    # Normalise event type — Vapi and ElevenLabs use different field names
+    event_type = (
+        body.get("type")
+        or body.get("message", {}).get("type")
+        or ""
+    )
+
+    # Normalise contact_id — ElevenLabs nests in data.conversation_initiation_client_data
+    contact_id = (
+        body.get("data", {})
+            .get("conversation_initiation_client_data", {})
+            .get("dynamic_variables", {})
+            .get("contact_id")
+        or body.get("metadata", {}).get("contact_id")
+        or body.get("message", {}).get("call", {}).get("metadata", {}).get("contact_id")
+    )
+
+    # Normalise transcript — ElevenLabs sends array of turns, Vapi sends string
+    raw_transcript = (
+        body.get("data", {}).get("transcript")
+        or body.get("transcript")
+        or body.get("message", {}).get("transcript")
+        or []
+    )
+    if isinstance(raw_transcript, list):
+        transcript = "\n".join(
+            f"{t.get('role', 'unknown').upper()}: {t.get('message', '')}"
+            for t in raw_transcript
+        )
+    else:
+        transcript = raw_transcript or ""
+
+    # Normalise summary
+    summary = (
+        body.get("analysis", {}).get("summary")
+        or body.get("message", {}).get("summary")
+        or body.get("summary")
+        or "Call completed"
+    )
+
+    logger.info("Webhook — event: %s contact: %s", event_type, contact_id)
+
+    END_EVENTS = {
+        "end-of-call-report",        # Vapi
+        "call-ended",                # Vapi
+        "post_call_transcription",   # ElevenLabs
+    }
+
+    if event_type not in END_EVENTS:
+        return {"status": "ok", "event": event_type}
+
+    if not contact_id:
+        logger.warning("End event missing contact_id — body: %s", str(body)[:200])
+        return {"status": "ignored", "reason": "no contact_id"}
+
+    db = get_db()
+
+    # Step 1 — Save transcript
+    interaction_id = None
+    try:
+        result = db.table("interactions").insert({
+            "contact_id": str(contact_id),
+            "type": "call",
+            "transcript": transcript,
+            "summary": summary,
+        }).execute()
+        interaction_id = result.data[0]["id"] if result.data else None
+        logger.info("Transcript saved — contact: %s interaction: %s", contact_id, interaction_id)
+    except Exception as e:
+        logger.error("Failed to save transcript: %s", e)
+        try:
+            db.table("failed_actions").insert({
+                "contact_id": str(contact_id),
+                "action_type": "save_call_transcript",
+                "payload": body,
+                "error_message": str(e),
+                "retry_count": 0,
+                "status": "pending",
+            }).execute()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Steps 2-4 — Post-call analysis (non-fatal)
+    outcome = "other"
+    delta = {}
+
+    if transcript:
+        try:
+            from backend.services.post_call import PostCallAnalyzer
+
+            contact = _load_contact(str(contact_id))
+            analyzer = PostCallAnalyzer()
+            analysis = analyzer.analyze(contact, transcript)
+            result_delta = analyzer.apply_delta(contact, analysis)
+            outcome = analysis.get("outcome", "other")
+            delta = result_delta.get("delta", {})
+
+            db.table("contacts").update({
+                "behavior_profile": result_delta["updated_profile"],
+                "trust_score": result_delta["trust_score"],
+                "risk_score": result_delta["risk_score"],
+            }).eq("id", str(contact_id)).execute()
+
+            if interaction_id:
+                db.table("interactions").update({
+                    "summary": analysis.get("outcome_notes", summary),
+                }).eq("id", interaction_id).execute()
+
+            logger.info(
+                "Profile updated — contact: %s outcome: %s changed: %s",
+                contact_id, outcome, delta.get("changed_fields", []),
+            )
+
+            # Step 3 — Schedule next follow-up
+            outcome_to_next = {
+                "promise_to_pay":      ("evaluate",          7),
+                "payment_plan_agreed": ("evaluate",         14),
+                "no_answer":           ("escalate_to_call",  3),
+                "callback_scheduled":  ("escalate_to_call",  2),
+                "refused_engagement":  ("escalate_to_human", 0),
+                "paid_now":            None,
+                "other":               ("evaluate",          4),
+            }
+
+            next_config = outcome_to_next.get(outcome, ("evaluate", 4))
+            if next_config is not None:
+                next_action, delay_days = next_config
+                scheduled_at = (
+                    datetime.now(timezone.utc) + timedelta(days=delay_days)
+                ).isoformat()
+                db.table("follow_ups").insert({
+                    "contact_id": str(contact_id),
+                    "scheduled_at": scheduled_at,
+                    "action_type": next_action,
+                    "status": "pending",
+                }).execute()
+                logger.info(
+                    "Follow-up scheduled — contact: %s action: %s in %d days",
+                    contact_id, next_action, delay_days,
+                )
+
+            # Step 4 — Human escalation briefing email
+            if outcome == "refused_engagement":
+                try:
+                    from backend.services.human_escalation import generate_briefing
+                    from backend.services.email_sender import send_email as _send
+
+                    history = (
+                        db.table("interactions")
+                        .select("*")
+                        .eq("contact_id", str(contact_id))
+                        .order("timestamp")
+                        .execute()
+                        .data or []
+                    )
+                    briefing = generate_briefing(contact, history)
+                    _send(
+                        to="ioanniscatargiu@outlook.com",
+                        subject=f"🚨 Human Escalation Required — {contact.get('name')}",
+                        body=briefing,
+                        contact_name=contact.get("name"),
+                    )
+                    logger.info("Human escalation briefing sent for %s", contact.get("name"))
+                except Exception as e:
+                    logger.error("Failed to send escalation briefing (non-fatal): %s", e)
+
+        except Exception as e:
+            logger.error("Post-call analysis failed (non-fatal): %s", e)
+
+    return {
+        "status": "saved",
+        "contact_id": str(contact_id),
+        "interaction_id": interaction_id,
+        "outcome": outcome,
+        "delta": delta,
+    }
+
+
+# ---------------------------------------------------------------------------
+# System prompt endpoint — for frontend ElevenLabs browser sessions
+# ---------------------------------------------------------------------------
+
+@router.get("/prompt/{contact_id}")
+def get_call_prompt(contact_id: UUID):
+    """
+    Returns the system prompt for a contact.
+    Used by frontend to inject profile into ElevenLabs browser session.
+    """
+    contact = _load_contact(str(contact_id))
+    first_name = contact.get("name", "").split()[0]
+    return {
+        "system_prompt": _build_system_prompt(contact),
+        "first_message": (
+            f"Good morning {first_name}. "
+            f"I'm calling regarding an outstanding balance. "
+            f"Is this a good time to talk?"
+        ),
+        "contact_name": contact.get("name"),
     }
