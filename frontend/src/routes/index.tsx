@@ -1,24 +1,47 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { getMockContacts } from '#/lib/mock'
 
+function useTextareaHeight(value: string) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
+  return ref
+}
+
 const STORAGE_KEY = 'miroir_business_settings'
+
+const MOCK_BUSINESS_DESCRIPTION = `We sell FlowBase — a subscription SaaS for small teams that automates invoicing, expense tracking, and payment reminders. Goal: help customers get paid faster and spend less time on admin.
+
+Tone: professional but friendly, clear and jargon-free. We’re here to solve their cash-flow headaches, not to upsell. Primary goal in conversations: qualify interest, answer objections, and move toward a trial or demo.`
+
+const MOCK_SCRIPT_EDGE_CASES = `— If they ask for a discount: acknowledge budget, offer annual billing (e.g. 2 months free) or the starter plan; don’t badger.
+— If they say “I need to check with my partner/accountant”: suggest a short follow-up call or email in 2–3 days; leave a clear next step.
+— If they mention a competitor: stay neutral, focus on what FlowBase does well (ease of use, reminders, support) and suggest a trial so they can compare.
+— If they ask for a payment plan: we don’t offer installments for annual; for monthly they can switch anytime. Keep it brief and point to the pricing page.
+— If they threaten to cancel or mention legal/complaints: stay calm, apologise for any frustration, offer to escalate to a manager or support; do not argue.`
 
 function loadSettings(): { description: string; script_or_edge_cases: string } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as { description?: string; script_or_edge_cases?: string }
+      const hasDesc = parsed.description != null && String(parsed.description).trim() !== ''
+      const hasScript = parsed.script_or_edge_cases != null && String(parsed.script_or_edge_cases).trim() !== ''
       return {
-        description: parsed.description ?? '',
-        script_or_edge_cases: parsed.script_or_edge_cases ?? '',
+        description: hasDesc ? String(parsed.description) : MOCK_BUSINESS_DESCRIPTION,
+        script_or_edge_cases: hasScript ? String(parsed.script_or_edge_cases) : MOCK_SCRIPT_EDGE_CASES,
       }
     }
   } catch {
     // ignore
   }
-  return { description: '', script_or_edge_cases: '' }
+  return { description: MOCK_BUSINESS_DESCRIPTION, script_or_edge_cases: MOCK_SCRIPT_EDGE_CASES }
 }
 
 function saveSettings(description: string, script_or_edge_cases: string) {
@@ -39,11 +62,14 @@ function IndexPage() {
     queryFn: () => Promise.resolve(getMockContacts()),
   })
 
-  const [description, setDescription] = useState('')
-  const [scriptOrEdgeCases, setScriptOrEdgeCases] = useState('')
+  const [description, setDescription] = useState(MOCK_BUSINESS_DESCRIPTION)
+  const [scriptOrEdgeCases, setScriptOrEdgeCases] = useState(MOCK_SCRIPT_EDGE_CASES)
   const [saved, setSaved] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(true)
   const [isLg, setIsLg] = useState(false)
+
+  const descriptionRef = useTextareaHeight(description)
+  const scriptRef = useTextareaHeight(scriptOrEdgeCases)
 
   useEffect(() => {
     const loaded = loadSettings()
@@ -100,11 +126,12 @@ function IndexPage() {
                   Purpose of the business, product, tone, goals.
                 </p>
                 <textarea
+                  ref={descriptionRef}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   onBlur={handleSaveSettings}
                   rows={3}
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)]"
+                  className="mt-2 min-h-[4.5rem] w-full resize-none overflow-y-auto rounded-lg border border-[var(--line)]/50 bg-[var(--surface)] p-3 text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]/30"
                   placeholder="Describe your business and product…"
                 />
               </div>
@@ -114,11 +141,12 @@ function IndexPage() {
                   How the agent should handle specific edge cases.
                 </p>
                 <textarea
+                  ref={scriptRef}
                   value={scriptOrEdgeCases}
                   onChange={(e) => setScriptOrEdgeCases(e.target.value)}
                   onBlur={handleSaveSettings}
-                  rows={4}
-                  className="mt-2 w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)]"
+                  rows={3}
+                  className="mt-2 min-h-[4.5rem] w-full resize-none overflow-y-auto rounded-lg border border-[var(--line)]/50 bg-[var(--surface)] p-3 text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]/30"
                   placeholder="If they ask for a payment plan, offer… If they mention legal action…"
                 />
               </div>

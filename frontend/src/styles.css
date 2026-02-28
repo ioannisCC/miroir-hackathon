@@ -347,6 +347,62 @@ a {
   }
 }
 
+@keyframes intervene-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.4), 0 0 16px rgba(34, 197, 94, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(34, 197, 94, 0.7), 0 0 28px rgba(34, 197, 94, 0.35);
+  }
+}
+
+.intervene-glow {
+  animation: intervene-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes intervene-dot-1 {
+  0%,
+  25%,
+  100% {
+    opacity: 0.3;
+  }
+  8% {
+    opacity: 1;
+  }
+}
+@keyframes intervene-dot-2 {
+  0%,
+  25%,
+  50%,
+  100% {
+    opacity: 0.3;
+  }
+  33% {
+    opacity: 1;
+  }
+}
+@keyframes intervene-dot-3 {
+  0%,
+  50%,
+  100% {
+    opacity: 0.3;
+  }
+  58% {
+    opacity: 1;
+  }
+}
+
+.intervene-dot-1 {
+  animation: intervene-dot-1 1.5s ease-in-out infinite;
+}
+.intervene-dot-2 {
+  animation: intervene-dot-2 1.5s ease-in-out infinite;
+}
+.intervene-dot-3 {
+  animation: intervene-dot-3 1.5s ease-in-out infinite;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

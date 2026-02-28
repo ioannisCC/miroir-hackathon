@@ -133,28 +133,45 @@ function ContactDetailPage() {
               Listen in call
             </button>
           )}
-          {/* Animated audio stream icon — right next to Listen in button; shown by default until backend */}
-          <span className="flex items-end gap-0.5" aria-label="Audio streaming">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <span
-                key={i}
-                className="w-1 rounded-full bg-[var(--lagoon)] origin-bottom"
-                style={{
-                  height: '12px',
-                  animation: 'audio-bar 0.6s ease-in-out infinite',
-                  animationDelay: `${i * 0.1}s`,
-                }}
-              />
-            ))}
-          </span>
+          {/* Animated audio stream icon — hidden when call is in progress */}
+          {!callLive && (
+            <span className="flex items-end gap-0.5" aria-label="Audio streaming">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span
+                  key={i}
+                  className="w-1 rounded-full bg-[var(--lagoon)] origin-bottom"
+                  style={{
+                    height: '12px',
+                    animation: 'audio-bar 0.6s ease-in-out infinite',
+                    animationDelay: `${i * 0.1}s`,
+                  }}
+                />
+              ))}
+            </span>
+          )}
           {callLive && listening && (
             <>
               <button
                 type="button"
                 onClick={() => setIntervened(true)}
-                className="rounded-lg border border-amber-500 bg-amber-50 px-4 py-2 font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-200"
+                className={
+                  intervened
+                    ? 'intervene-glow rounded-lg border border-green-500 bg-green-50 px-4 py-2 font-medium text-green-800 dark:border-green-600 dark:bg-green-900/20 dark:text-green-200'
+                    : 'rounded-lg border border-amber-500 bg-amber-50 px-4 py-2 font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-200'
+                }
               >
-                Intervene
+                {intervened ? (
+                  <>
+                    Intervening
+                    <span className="inline-flex">
+                      <span className="intervene-dot-1">.</span>
+                      <span className="intervene-dot-2">.</span>
+                      <span className="intervene-dot-3">.</span>
+                    </span>
+                  </>
+                ) : (
+                  'Intervene'
+                )}
               </button>
               <button
                 type="button"
