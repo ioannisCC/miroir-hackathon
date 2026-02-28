@@ -14,7 +14,9 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BlogIndexRouteImport } from './routes/blog.index'
 import { Route as DemoTanstackQueryRouteImport } from './routes/demo/tanstack-query'
+import { Route as ContactsContactIdRouteImport } from './routes/contacts.$contactId'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
+import { Route as ApiUploadthingRouteImport } from './routes/api/uploadthing'
 
 const RssDotxmlRoute = RssDotxmlRouteImport.update({
   id: '/rss.xml',
@@ -41,9 +43,19 @@ const DemoTanstackQueryRoute = DemoTanstackQueryRouteImport.update({
   path: '/demo/tanstack-query',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContactsContactIdRoute = ContactsContactIdRouteImport.update({
+  id: '/contacts/$contactId',
+  path: '/contacts/$contactId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlogSlugRoute = BlogSlugRouteImport.update({
   id: '/blog/$slug',
   path: '/blog/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiUploadthingRoute = ApiUploadthingRouteImport.update({
+  id: '/api/uploadthing',
+  path: '/api/uploadthing',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -51,7 +63,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/rss.xml': typeof RssDotxmlRoute
+  '/api/uploadthing': typeof ApiUploadthingRoute
   '/blog/$slug': typeof BlogSlugRoute
+  '/contacts/$contactId': typeof ContactsContactIdRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/blog/': typeof BlogIndexRoute
 }
@@ -59,7 +73,9 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/rss.xml': typeof RssDotxmlRoute
+  '/api/uploadthing': typeof ApiUploadthingRoute
   '/blog/$slug': typeof BlogSlugRoute
+  '/contacts/$contactId': typeof ContactsContactIdRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/blog': typeof BlogIndexRoute
 }
@@ -68,7 +84,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/rss.xml': typeof RssDotxmlRoute
+  '/api/uploadthing': typeof ApiUploadthingRoute
   '/blog/$slug': typeof BlogSlugRoute
+  '/contacts/$contactId': typeof ContactsContactIdRoute
   '/demo/tanstack-query': typeof DemoTanstackQueryRoute
   '/blog/': typeof BlogIndexRoute
 }
@@ -78,7 +96,9 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/rss.xml'
+    | '/api/uploadthing'
     | '/blog/$slug'
+    | '/contacts/$contactId'
     | '/demo/tanstack-query'
     | '/blog/'
   fileRoutesByTo: FileRoutesByTo
@@ -86,7 +106,9 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/rss.xml'
+    | '/api/uploadthing'
     | '/blog/$slug'
+    | '/contacts/$contactId'
     | '/demo/tanstack-query'
     | '/blog'
   id:
@@ -94,7 +116,9 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/rss.xml'
+    | '/api/uploadthing'
     | '/blog/$slug'
+    | '/contacts/$contactId'
     | '/demo/tanstack-query'
     | '/blog/'
   fileRoutesById: FileRoutesById
@@ -103,7 +127,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   RssDotxmlRoute: typeof RssDotxmlRoute
+  ApiUploadthingRoute: typeof ApiUploadthingRoute
   BlogSlugRoute: typeof BlogSlugRoute
+  ContactsContactIdRoute: typeof ContactsContactIdRoute
   DemoTanstackQueryRoute: typeof DemoTanstackQueryRoute
   BlogIndexRoute: typeof BlogIndexRoute
 }
@@ -145,11 +171,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DemoTanstackQueryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contacts/$contactId': {
+      id: '/contacts/$contactId'
+      path: '/contacts/$contactId'
+      fullPath: '/contacts/$contactId'
+      preLoaderRoute: typeof ContactsContactIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blog/$slug': {
       id: '/blog/$slug'
       path: '/blog/$slug'
       fullPath: '/blog/$slug'
       preLoaderRoute: typeof BlogSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/uploadthing': {
+      id: '/api/uploadthing'
+      path: '/api/uploadthing'
+      fullPath: '/api/uploadthing'
+      preLoaderRoute: typeof ApiUploadthingRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -159,7 +199,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   RssDotxmlRoute: RssDotxmlRoute,
+  ApiUploadthingRoute: ApiUploadthingRoute,
   BlogSlugRoute: BlogSlugRoute,
+  ContactsContactIdRoute: ContactsContactIdRoute,
   DemoTanstackQueryRoute: DemoTanstackQueryRoute,
   BlogIndexRoute: BlogIndexRoute,
 }
