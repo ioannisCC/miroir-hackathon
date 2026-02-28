@@ -88,7 +88,7 @@ Trust score: {contact.get('trust_score')}
 Risk score: {contact.get('risk_score')}
 
 PRIOR INTERACTIONS:
-{json.dumps([{{'type': str(i.get('type') or ''), 'summary': str(i.get('summary') or '')}} for i in interaction_history[-5:]], indent=2)}
+{json.dumps([{'type': str(i.get('type') or ''), 'summary': str(i.get('summary') or '')} for i in interaction_history[-5:]], indent=2)}
 
 Draft the email. Return:
 {{
