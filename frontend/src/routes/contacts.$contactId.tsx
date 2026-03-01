@@ -1,6 +1,9 @@
+import { ClipboardDocumentIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
+import { JsonHighlight } from '#/components/JsonHighlight'
+import { prettyPrintJson } from '#/lib/utils'
 import {
   fetchContact,
   fetchInteractions,
@@ -94,6 +97,13 @@ function ContactDetailPage() {
   const [uploadedFiles, setUploadedFiles] = useState<
     { name: string; url: string; key: string | null; size: number }[]
   >(MOCK_CONTEXT_FILES)
+  const [profileCopied, setProfileCopied] = useState(false)
+
+  const handleCopyProfile = async () => {
+    await navigator.clipboard.writeText(prettyPrintJson(profile))
+    setProfileCopied(true)
+    setTimeout(() => setProfileCopied(false), 2000)
+  }
 
   const handleStartCall = () => {
     callMutation.mutate()
@@ -499,10 +509,29 @@ function ContactDetailPage() {
         <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
           Behavioral profile (engineering)
         </h2>
-        <div className="rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4">
-          <pre className="overflow-auto text-sm font-mono text-[var(--sea-ink)] max-h-[400px] whitespace-pre-wrap break-words">
-            {JSON.stringify(profile, null, 2)}
-          </pre>
+        <div className="relative rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4">
+          <button
+            type="button"
+            onClick={handleCopyProfile}
+            className="cursor-pointer absolute right-3 top-3 flex items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-medium text-[var(--sea-ink)] shadow-sm hover:bg-[var(--chip-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]/30"
+            title={profileCopied ? 'Copied!' : 'Copy JSON'}
+          >
+            {profileCopied ? (
+              <>
+                <CheckIcon className="h-4 w-4 text-[var(--palm)]" aria-hidden />
+                <span className="text-[var(--palm)]">Copied</span>
+              </>
+            ) : (
+              <>
+                <ClipboardDocumentIcon className="h-4 w-4" aria-hidden />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+          <JsonHighlight
+            data={profile}
+            className="text-[var(--sea-ink)] pt-8"
+          />
         </div>
       </section>
 

@@ -68,14 +68,67 @@ export const MOCK_CONTEXT_FILES: MockContextFile[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Business settings (description + script/edge cases)
+// ---------------------------------------------------------------------------
+
+export type MockBusinessSettings = {
+  description: string
+  script_or_edge_cases: string
+}
+
+export const MOCK_BUSINESS_DESCRIPTION = `We sell FlowBase — a subscription SaaS for small teams that automates invoicing, expense tracking, and payment reminders. Goal: help customers get paid faster and spend less time on admin.
+
+Tone: professional but friendly, clear and jargon-free. We're here to solve their cash-flow headaches, not to upsell. Primary goal in conversations: qualify interest, answer objections, and move toward a trial or demo.`
+
+export const MOCK_SCRIPT_EDGE_CASES = `— If they ask for a discount: acknowledge budget, offer annual billing (e.g. 2 months free) or the starter plan; don't badger.
+— If they say "I need to check with my partner/accountant": suggest a short follow-up call or email in 2–3 days; leave a clear next step.
+— If they mention a competitor: stay neutral, focus on what FlowBase does well (ease of use, reminders, support) and suggest a trial so they can compare.
+— If they ask for a payment plan: we don't offer installments for annual; for monthly they can switch anytime. Keep it brief and point to the pricing page.
+— If they threaten to cancel or mention legal/complaints: stay calm, apologise for any frustration, offer to escalate to a manager or support; do not argue.`
+
+export const MOCK_BUSINESS_SETTINGS: MockBusinessSettings = {
+  description: MOCK_BUSINESS_DESCRIPTION,
+  script_or_edge_cases: MOCK_SCRIPT_EDGE_CASES,
+}
+
+// ---------------------------------------------------------------------------
 // Contacts (id for routes; email for interactions/decisions)
 // ---------------------------------------------------------------------------
+
+/** Trust or risk indicator from behavioral analysis (source thread + severity). */
+export type BehaviorIndicator = {
+  signal: string
+  severity: number
+  source: string
+}
+
+/** Structured behavioral profile; summary required, rest optional for partial profiles. */
+export type BehaviorProfile = {
+  summary: string
+  reply_speed?: string
+  reply_speed_score?: number
+  non_response_patterns?: string
+  communication_tone?: string
+  communication_tone_score?: number
+  follow_through_rate?: string
+  follow_through_score?: number
+  channel_preference?: string
+  pressure_response?: string
+  pressure_score?: number
+  trust_indicators?: BehaviorIndicator[]
+  risk_indicators?: BehaviorIndicator[]
+  data_quality_notes?: string
+  timezone?: string
+  /** Legacy / shorthand field used by some contacts. */
+  psychological_profile?: string
+  trust_score?: number
+}
 
 export type MockContact = {
   id: string
   name: string
   email: string
-  behavior_profile: Record<string, unknown>
+  behavior_profile: BehaviorProfile
   risk_score?: number
   trust_score?: number
 }
