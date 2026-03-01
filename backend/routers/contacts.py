@@ -6,28 +6,31 @@ Contact management endpoints.
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.core.database import get_db
 from backend.core.logging import get_logger
 from backend.services.email_service import EmailService
+from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
 @router.get("")
-def list_contacts():
-    """Return all contacts ordered by risk score descending."""
+def list_contacts(use_case: str | None = Query(None, description="Filter by use_case. If omitted, auto-filters by active preset.")):
+    """Return contacts filtered by use_case (auto-detects from active preset)."""
     try:
         db = get_db()
-        result = (
-            db.table("contacts")
-            .select("*")
-            .order("risk_score", desc=True)
-            .execute()
-        )
+
+        # Auto-detect from active preset if not explicitly provided
+        if use_case is None:
+            gl = get_guidelines()
+            use_case = gl.get("preset_name", "debt_collection")
+
+        query = db.table("contacts").select("*").eq("use_case", use_case).order("risk_score", desc=True)
+        result = query.execute()
         return result.data
     except Exception as e:
         logger.error("Failed to list contacts: %s", e)
