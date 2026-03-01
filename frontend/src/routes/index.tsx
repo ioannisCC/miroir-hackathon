@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { getMockContacts } from '#/lib/mock'
+import { getMockContacts, MOCK_BUSINESS_SETTINGS } from '#/lib/mock'
 
 function useTextareaHeight(value: string) {
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -16,16 +16,6 @@ function useTextareaHeight(value: string) {
 
 const STORAGE_KEY = 'miroir_business_settings'
 
-const MOCK_BUSINESS_DESCRIPTION = `We sell FlowBase — a subscription SaaS for small teams that automates invoicing, expense tracking, and payment reminders. Goal: help customers get paid faster and spend less time on admin.
-
-Tone: professional but friendly, clear and jargon-free. We’re here to solve their cash-flow headaches, not to upsell. Primary goal in conversations: qualify interest, answer objections, and move toward a trial or demo.`
-
-const MOCK_SCRIPT_EDGE_CASES = `— If they ask for a discount: acknowledge budget, offer annual billing (e.g. 2 months free) or the starter plan; don’t badger.
-— If they say “I need to check with my partner/accountant”: suggest a short follow-up call or email in 2–3 days; leave a clear next step.
-— If they mention a competitor: stay neutral, focus on what FlowBase does well (ease of use, reminders, support) and suggest a trial so they can compare.
-— If they ask for a payment plan: we don’t offer installments for annual; for monthly they can switch anytime. Keep it brief and point to the pricing page.
-— If they threaten to cancel or mention legal/complaints: stay calm, apologise for any frustration, offer to escalate to a manager or support; do not argue.`
-
 function loadSettings(): { description: string; script_or_edge_cases: string } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -34,14 +24,14 @@ function loadSettings(): { description: string; script_or_edge_cases: string } {
       const hasDesc = parsed.description != null && String(parsed.description).trim() !== ''
       const hasScript = parsed.script_or_edge_cases != null && String(parsed.script_or_edge_cases).trim() !== ''
       return {
-        description: hasDesc ? String(parsed.description) : MOCK_BUSINESS_DESCRIPTION,
-        script_or_edge_cases: hasScript ? String(parsed.script_or_edge_cases) : MOCK_SCRIPT_EDGE_CASES,
+        description: hasDesc ? String(parsed.description) : MOCK_BUSINESS_SETTINGS.description,
+        script_or_edge_cases: hasScript ? String(parsed.script_or_edge_cases) : MOCK_BUSINESS_SETTINGS.script_or_edge_cases,
       }
     }
   } catch {
     // ignore
   }
-  return { description: MOCK_BUSINESS_DESCRIPTION, script_or_edge_cases: MOCK_SCRIPT_EDGE_CASES }
+  return { ...MOCK_BUSINESS_SETTINGS }
 }
 
 function saveSettings(description: string, script_or_edge_cases: string) {
@@ -62,8 +52,8 @@ function IndexPage() {
     queryFn: () => Promise.resolve(getMockContacts()),
   })
 
-  const [description, setDescription] = useState(MOCK_BUSINESS_DESCRIPTION)
-  const [scriptOrEdgeCases, setScriptOrEdgeCases] = useState(MOCK_SCRIPT_EDGE_CASES)
+  const [description, setDescription] = useState(MOCK_BUSINESS_SETTINGS.description)
+  const [scriptOrEdgeCases, setScriptOrEdgeCases] = useState(MOCK_BUSINESS_SETTINGS.script_or_edge_cases)
   const [saved, setSaved] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(true)
   const [isLg, setIsLg] = useState(false)
