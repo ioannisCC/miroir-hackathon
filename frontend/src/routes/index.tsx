@@ -1,7 +1,15 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
-import { getMockContacts } from '#/lib/mock'
+import {
+  fetchContacts,
+  fetchGuidelines,
+  fetchActivePreset,
+  fetchPresetList,
+  switchPreset,
+  updateGuidelines,
+  type Contact,
+} from '#/lib/api'
 
 function useTextareaHeight(value: string) {
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -14,68 +22,69 @@ function useTextareaHeight(value: string) {
   return ref
 }
 
-const STORAGE_KEY = 'miroir_business_settings'
-
-const MOCK_BUSINESS_DESCRIPTION = `We sell FlowBase — a subscription SaaS for small teams that automates invoicing, expense tracking, and payment reminders. Goal: help customers get paid faster and spend less time on admin.
-
-Tone: professional but friendly, clear and jargon-free. We’re here to solve their cash-flow headaches, not to upsell. Primary goal in conversations: qualify interest, answer objections, and move toward a trial or demo.`
-
-const MOCK_SCRIPT_EDGE_CASES = `— If they ask for a discount: acknowledge budget, offer annual billing (e.g. 2 months free) or the starter plan; don’t badger.
-— If they say “I need to check with my partner/accountant”: suggest a short follow-up call or email in 2–3 days; leave a clear next step.
-— If they mention a competitor: stay neutral, focus on what FlowBase does well (ease of use, reminders, support) and suggest a trial so they can compare.
-— If they ask for a payment plan: we don’t offer installments for annual; for monthly they can switch anytime. Keep it brief and point to the pricing page.
-— If they threaten to cancel or mention legal/complaints: stay calm, apologise for any frustration, offer to escalate to a manager or support; do not argue.`
-
-function loadSettings(): { description: string; script_or_edge_cases: string } {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as { description?: string; script_or_edge_cases?: string }
-      const hasDesc = parsed.description != null && String(parsed.description).trim() !== ''
-      const hasScript = parsed.script_or_edge_cases != null && String(parsed.script_or_edge_cases).trim() !== ''
-      return {
-        description: hasDesc ? String(parsed.description) : MOCK_BUSINESS_DESCRIPTION,
-        script_or_edge_cases: hasScript ? String(parsed.script_or_edge_cases) : MOCK_SCRIPT_EDGE_CASES,
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return { description: MOCK_BUSINESS_DESCRIPTION, script_or_edge_cases: MOCK_SCRIPT_EDGE_CASES }
-}
-
-function saveSettings(description: string, script_or_edge_cases: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ description, script_or_edge_cases }))
-  } catch {
-    // ignore
-  }
-}
-
 export const Route = createFileRoute('/')({
   component: IndexPage,
 })
 
+const PRESET_LABELS: Record<string, string> = {
+  debt_collection: '💰 Debt Collection',
+  recruitment: '🎯 Recruitment',
+}
+
 function IndexPage() {
-  const { data: list } = useQuery({
+  const qc = useQueryClient()
+
+  // Contacts (auto-filtered by active preset on backend)
+  const { data: list, isLoading: contactsLoading } = useQuery({
     queryKey: ['contacts'],
-    queryFn: () => Promise.resolve(getMockContacts()),
+    queryFn: fetchContacts,
   })
 
-  const [description, setDescription] = useState(MOCK_BUSINESS_DESCRIPTION)
-  const [scriptOrEdgeCases, setScriptOrEdgeCases] = useState(MOCK_SCRIPT_EDGE_CASES)
+  // Active preset
+  const { data: activePreset } = useQuery({
+    queryKey: ['activePreset'],
+    queryFn: fetchActivePreset,
+  })
+
+  // Available presets
+  const { data: presetListData } = useQuery({
+    queryKey: ['presetList'],
+    queryFn: fetchPresetList,
+  })
+
+  // Full guidelines (for settings panel)
+  const { data: guidelines } = useQuery({
+    queryKey: ['guidelines'],
+    queryFn: fetchGuidelines,
+  })
+
+  // Switch preset mutation
+  const presetMutation = useMutation({
+    mutationFn: (name: string) => switchPreset(name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['contacts'] })
+      qc.invalidateQueries({ queryKey: ['activePreset'] })
+      qc.invalidateQueries({ queryKey: ['guidelines'] })
+    },
+  })
+
+  // Settings state (driven from guidelines)
+  const [generalContext, setGeneralContext] = useState('')
+  const [callRules, setCallRules] = useState('')
   const [saved, setSaved] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(true)
   const [isLg, setIsLg] = useState(false)
 
-  const descriptionRef = useTextareaHeight(description)
-  const scriptRef = useTextareaHeight(scriptOrEdgeCases)
+  const contextRef = useTextareaHeight(generalContext)
+  const rulesRef = useTextareaHeight(callRules)
 
+  // Sync local state when guidelines load
   useEffect(() => {
-    const loaded = loadSettings()
-    setDescription(loaded.description)
-    setScriptOrEdgeCases(loaded.script_or_edge_cases)
-  }, [])
+    if (guidelines) {
+      setGeneralContext(guidelines.general_context || '')
+      setCallRules(guidelines.call_rules || '')
+    }
+  }, [guidelines])
 
   useEffect(() => {
     const m = window.matchMedia('(min-width: 1024px)')
@@ -85,11 +94,19 @@ function IndexPage() {
     return () => m.removeEventListener('change', handler)
   }, [])
 
-  const handleSaveSettings = () => {
-    saveSettings(description, scriptOrEdgeCases)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleSaveSettings = async () => {
+    try {
+      await updateGuidelines({ general_context: generalContext, call_rules: callRules })
+      qc.invalidateQueries({ queryKey: ['guidelines'] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) {
+      console.error('Failed to save guidelines:', e)
+    }
   }
+
+  const presets = presetListData?.presets ?? []
+  const currentPreset = activePreset?.preset_name ?? 'debt_collection'
 
   return (
     <main className="page-wrap px-4 py-8">
@@ -98,8 +115,44 @@ function IndexPage() {
         Behavioral intelligence for your conversations.
       </p>
 
-      <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-2">
-        {/* Settings — left; collapsible on small screens, collapsed by default */}
+      {/* ── PRESET SELECTOR ── */}
+      {presets.length > 0 && (
+        <div className="mt-6 flex items-center gap-3">
+          <label className="text-sm font-medium text-[var(--sea-ink)]">Use case:</label>
+          <div className="flex gap-2">
+            {presets.map((p) => (
+              <button
+                key={p}
+                type="button"
+                disabled={presetMutation.isPending}
+                onClick={() => {
+                  if (p !== currentPreset) presetMutation.mutate(p)
+                }}
+                className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                  p === currentPreset
+                    ? 'bg-[var(--lagoon)] text-white shadow-md'
+                    : 'border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink)] hover:bg-[var(--chip-bg)]'
+                }`}
+              >
+                {PRESET_LABELS[p] ?? p}
+              </button>
+            ))}
+          </div>
+          {presetMutation.isPending && (
+            <span className="text-sm text-[var(--sea-ink-soft)] animate-pulse">Switching…</span>
+          )}
+        </div>
+      )}
+
+      {/* Active preset summary */}
+      {activePreset && (
+        <p className="mt-2 text-xs text-[var(--sea-ink-soft)]">
+          Agent role: <span className="font-medium">{activePreset.agent_role}</span> · Context: <span className="font-medium">{activePreset.context_label}</span>
+        </p>
+      )}
+
+      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+        {/* Settings — left */}
         <details
           open={isLg || settingsOpen}
           onToggle={(e) => setSettingsOpen((e.target as HTMLDetailsElement).open)}
@@ -107,7 +160,7 @@ function IndexPage() {
         >
           <summary className="cursor-pointer list-none select-none px-4 py-3 text-xl font-semibold text-[var(--sea-ink)] lg:cursor-default lg:py-0 lg:px-0 [&::-webkit-details-marker]:hidden">
             <span className="inline-flex items-center gap-2">
-              Settings
+              Guidelines
               {!isLg && (
                 <span className="text-sm font-normal text-[var(--sea-ink-soft)]" aria-hidden>
                   {settingsOpen ? '▼' : '▶'}
@@ -117,37 +170,35 @@ function IndexPage() {
           </summary>
           <div className="border-t border-[var(--line)] px-4 pb-4 pt-4 lg:border-t-0 lg:px-0 lg:pb-0 lg:pt-4">
             <p className="mt-1 text-sm text-[var(--sea-ink-soft)]">
-              Business description and script for edge cases. Stored in this browser only.
+              Company guidelines — synced with backend. Changes affect all prompts instantly.
             </p>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-[var(--sea-ink)]">Business description</label>
+                <label className="block text-sm font-medium text-[var(--sea-ink)]">General context</label>
                 <p className="mt-0.5 text-xs text-[var(--sea-ink-soft)]">
-                  Purpose of the business, product, tone, goals.
+                  Who you are, your goals, your tone.
                 </p>
                 <textarea
-                  ref={descriptionRef}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  onBlur={handleSaveSettings}
+                  ref={contextRef}
+                  value={generalContext}
+                  onChange={(e) => setGeneralContext(e.target.value)}
                   rows={3}
                   className="mt-2 min-h-[4.5rem] w-full resize-none overflow-y-auto rounded-lg border border-[var(--line)]/50 bg-[var(--surface)] p-3 text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]/30"
-                  placeholder="Describe your business and product…"
+                  placeholder="Describe your business…"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[var(--sea-ink)]">Script / Edge cases</label>
+                <label className="block text-sm font-medium text-[var(--sea-ink)]">Call rules</label>
                 <p className="mt-0.5 text-xs text-[var(--sea-ink-soft)]">
-                  How the agent should handle specific edge cases.
+                  Rules the agent must follow during calls.
                 </p>
                 <textarea
-                  ref={scriptRef}
-                  value={scriptOrEdgeCases}
-                  onChange={(e) => setScriptOrEdgeCases(e.target.value)}
-                  onBlur={handleSaveSettings}
+                  ref={rulesRef}
+                  value={callRules}
+                  onChange={(e) => setCallRules(e.target.value)}
                   rows={3}
                   className="mt-2 min-h-[4.5rem] w-full resize-none overflow-y-auto rounded-lg border border-[var(--line)]/50 bg-[var(--surface)] p-3 text-sm text-[var(--sea-ink)] placeholder:text-[var(--sea-ink-soft)] focus:border-[var(--lagoon)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]/30"
-                  placeholder="If they ask for a payment plan, offer… If they mention legal action…"
+                  placeholder="Never threaten legal action…"
                 />
               </div>
               <button
@@ -157,7 +208,7 @@ function IndexPage() {
               >
                 Save
               </button>
-              {saved && <span className="ml-3 text-sm text-[var(--palm)]">Saved.</span>}
+              {saved && <span className="ml-3 text-sm text-[var(--palm)]">Saved ✓</span>}
             </div>
           </div>
         </details>
@@ -166,11 +217,16 @@ function IndexPage() {
         <section>
           <h2 className="text-xl font-semibold text-[var(--sea-ink)]">Contacts</h2>
           <p className="mt-1 text-sm text-[var(--sea-ink-soft)]">
-            Select a contact to view their profile and listen in to a call.
+            {currentPreset === 'recruitment'
+              ? 'Candidates for the active recruitment campaign.'
+              : 'Select a contact to view their profile and listen in to a call.'}
           </p>
+          {contactsLoading && (
+            <p className="mt-4 text-sm text-[var(--sea-ink-soft)] animate-pulse">Loading contacts…</p>
+          )}
           {list && list.length > 0 && (
             <ul className="mt-4 space-y-3">
-              {list.map((c) => (
+              {list.map((c: Contact) => (
                 <li key={c.id}>
                   <Link
                     to="/contacts/$contactId"
@@ -184,13 +240,18 @@ function IndexPage() {
                         risk {c.risk_score.toFixed(2)}
                       </span>
                     )}
+                    {c.trust_score != null && (
+                      <span className="ml-2 text-sm text-[var(--sea-ink-soft)]">
+                        trust {c.trust_score.toFixed(2)}
+                      </span>
+                    )}
                   </Link>
                 </li>
               ))}
             </ul>
           )}
           {list && list.length === 0 && (
-            <p className="mt-4 text-sm text-[var(--sea-ink-soft)]">No contacts in mock data.</p>
+            <p className="mt-4 text-sm text-[var(--sea-ink-soft)]">No contacts for this use case.</p>
           )}
         </section>
       </div>

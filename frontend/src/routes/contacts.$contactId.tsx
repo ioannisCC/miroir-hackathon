@@ -1,14 +1,22 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import {
-  getMockContactById,
-  getMockInteractions,
-  getMockDecision,
+  fetchContact,
+  fetchInteractions,
+  fetchDecisions,
+  startCall,
+  evaluateContact,
+  executeAction,
+  overrideDecision,
+  type Interaction,
+} from '#/lib/api'
+import {
+  ACTION_LABELS,
+  OVERRIDE_REASONS,
+  MOCK_CONTEXT_FILES,
   MOCK_LIVE_TRANSCRIPT,
   MOCK_DECISION_LOG,
-  ACTION_LABELS,
-  MOCK_CONTEXT_FILES,
 } from '#/lib/mock'
 import { UploadDropzone } from '#/lib/uploadthing'
 
@@ -18,32 +26,77 @@ export const Route = createFileRoute('/contacts/$contactId')({
 
 function ContactDetailPage() {
   const { contactId } = Route.useParams()
+  const qc = useQueryClient()
+
+  // ── Real API queries ──
   const {
     data: contact,
     isPending,
-    isError,
   } = useQuery({
     queryKey: ['contact', contactId],
-    queryFn: () => Promise.resolve(getMockContactById(contactId)),
+    queryFn: () => fetchContact(contactId),
   })
 
-  const interactions = contact ? getMockInteractions(contact.email) : []
-  const decision = contact ? getMockDecision(contact.email) : undefined
+  const { data: interactions } = useQuery({
+    queryKey: ['interactions', contactId],
+    queryFn: () => fetchInteractions(contactId),
+    enabled: !!contact,
+  })
 
-  // Call state: live (after start), listening (user clicked Listen in) — mock only
+  const { data: decisions } = useQuery({
+    queryKey: ['decisions', contactId],
+    queryFn: () => fetchDecisions(contactId),
+    enabled: !!contact,
+  })
+
+  const latestDecision = decisions?.[0]
+
+  // ── Mutations ──
+  const callMutation = useMutation({
+    mutationFn: () => startCall(contactId),
+    onSuccess: () => {
+      setCallLive(true)
+      setListening(true)
+    },
+  })
+
+  const evalMutation = useMutation({
+    mutationFn: () => evaluateContact(contactId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['decisions', contactId] })
+      qc.invalidateQueries({ queryKey: ['interactions', contactId] })
+    },
+  })
+
+  const emailMutation = useMutation({
+    mutationFn: () => executeAction(contactId, 'send_email'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['interactions', contactId] })
+    },
+  })
+
+  const overrideMutation = useMutation({
+    mutationFn: ({ decisionId, action, reason }: { decisionId: string; action: string; reason: string }) =>
+      overrideDecision(decisionId, action, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['decisions', contactId] })
+    },
+  })
+
+  // ── Local UI state ──
   const [callLive, setCallLive] = useState(false)
   const [listening, setListening] = useState(false)
   const [intervened, setIntervened] = useState(false)
+  const [overrideOpen, setOverrideOpen] = useState(false)
+  const [overrideAction, setOverrideAction] = useState('')
+  const [overrideReason, setOverrideReason] = useState('')
 
-  // Files: mock list + any uploaded this session (from UploadThing onClientUploadComplete)
   const [uploadedFiles, setUploadedFiles] = useState<
     { name: string; url: string; key: string | null; size: number }[]
   >(MOCK_CONTEXT_FILES)
 
   const handleStartCall = () => {
-    setCallLive(true)
-    setListening(true)
-    setIntervened(false)
+    callMutation.mutate()
   }
 
   if (!isPending && !contact) {
@@ -88,6 +141,7 @@ function ContactDetailPage() {
         )}
       </header>
 
+      {/* ── Behavioral summary — psychological profile preferred ── */}
       <div className="mb-8 max-w-3xl">
         {typeof profile.psychological_profile === 'string' ? (
           <p className="text-base text-[var(--sea-ink)] leading-relaxed md:text-lg">
@@ -104,23 +158,45 @@ function ContactDetailPage() {
         )}
       </div>
 
-      {/* Call controls: Listen in call, Live indicator, Listen in / Intervene */}
+      {/* ── Action buttons ── */}
       <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
-          Call
-        </h2>
+        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">Actions</h2>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => evalMutation.mutate()}
+            disabled={evalMutation.isPending}
+            className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--sea-ink)] hover:bg-[var(--chip-bg)] disabled:opacity-50"
+          >
+            {evalMutation.isPending ? 'Evaluating…' : '🧠 Evaluate'}
+          </button>
+          <button
+            type="button"
+            onClick={() => emailMutation.mutate()}
+            disabled={emailMutation.isPending}
+            className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--sea-ink)] hover:bg-[var(--chip-bg)] disabled:opacity-50"
+          >
+            {emailMutation.isPending ? 'Sending…' : '✉️ Send Email'}
+          </button>
+          {emailMutation.isSuccess && (
+            <span className="self-center text-xs text-[var(--palm)]">Email sent ✓</span>
+          )}
+          {evalMutation.isSuccess && (
+            <span className="self-center text-xs text-[var(--palm)]">Evaluation complete ✓</span>
+          )}
+        </div>
+      </section>
+
+      {/* ── Call controls ── */}
+      <section className="mb-8">
+        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">Call</h2>
         {callLive && (
           <div className="mb-3 flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-0.5 text-sm font-medium text-red-800 dark:bg-red-900/30 dark:text-red-400">
-              <span
-                className="h-2 w-2 rounded-full bg-red-500 animate-pulse"
-                aria-hidden
-              />
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden />
               Live
             </span>
-            <span className="text-sm text-[var(--sea-ink-soft)]">
-              Call in progress
-            </span>
+            <span className="text-sm text-[var(--sea-ink-soft)]">Call in progress</span>
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
@@ -128,9 +204,10 @@ function ContactDetailPage() {
             <button
               type="button"
               onClick={handleStartCall}
-              className="flex items-center gap-2 rounded-lg bg-[var(--lagoon)] px-4 py-2 font-medium text-white hover:opacity-90"
+              disabled={callMutation.isPending}
+              className="flex items-center gap-2 rounded-lg bg-[var(--lagoon)] px-4 py-2 font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              Listen in call
+              {callMutation.isPending ? 'Starting call…' : 'Listen in call'}
               <span className="flex items-end gap-0.5" aria-label="Audio streaming">
                 {[
                   { name: 'audio-bar-1', duration: 0.55 },
@@ -182,6 +259,8 @@ function ContactDetailPage() {
                   setListening(false)
                   setCallLive(false)
                   setIntervened(false)
+                  // Refetch interactions to pick up the new call
+                  qc.invalidateQueries({ queryKey: ['interactions', contactId] })
                 }}
                 className="rounded-lg border border-red-500 bg-red-50 px-4 py-2 font-medium text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-900/30"
               >
@@ -199,7 +278,12 @@ function ContactDetailPage() {
             </button>
           )}
         </div>
-        {/* Thinking stream / decision log: only visible when listening */}
+        {callMutation.isError && (
+          <p className="mt-2 text-sm text-red-600">
+            Call failed: {(callMutation.error as Error)?.message}
+          </p>
+        )}
+        {/* Agent thinking + live transcript — visible when listening */}
         {callLive && listening && (
           <div className="mt-4 space-y-4">
             <div className="rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4">
@@ -233,34 +317,138 @@ function ContactDetailPage() {
         )}
       </section>
 
-      {/* Decision (mock) */}
-      {decision && (
+      {/* ── Latest Decision (from Supabase decisions table) ── */}
+      {latestDecision && (
         <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
-            Decision
-          </h2>
+          <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">Latest Decision</h2>
           <div className="rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4 space-y-3">
             <p>
-              <span className="text-sm font-medium text-[var(--sea-ink)]">
-                Action:{' '}
-              </span>
+              <span className="text-sm font-medium text-[var(--sea-ink)]">Action: </span>
               <span className="text-sm text-[var(--sea-ink-soft)]">
-                {ACTION_LABELS[decision.approach_chosen] ??
-                  decision.approach_chosen}
+                {ACTION_LABELS[latestDecision.approach_chosen] ?? latestDecision.approach_chosen}
               </span>
             </p>
-            <p className="text-sm text-[var(--sea-ink-soft)]">
-              {decision.reasoning}
-            </p>
+            {latestDecision.reasoning && (
+              <p className="text-sm text-[var(--sea-ink-soft)]">{latestDecision.reasoning}</p>
+            )}
             <p className="text-sm">
-              <span className="font-medium text-[var(--sea-ink)]">
-                Confidence:{' '}
-              </span>
+              <span className="font-medium text-[var(--sea-ink)]">Confidence: </span>
               <span className="text-[var(--sea-ink-soft)]">
-                {(decision.confidence_score * 100).toFixed(0)}%
+                {((latestDecision.confidence_score ?? 0) * 100).toFixed(0)}%
               </span>
-              {decision.escalate && (
-                <span className="ml-2 text-amber-600">Escalate</span>
+              {latestDecision.escalate && (
+                <span className="ml-2 text-xs font-medium text-red-600">⚠ Escalate</span>
+              )}
+            </p>
+            {latestDecision.confidence_notes && (
+              <p className="text-xs text-[var(--sea-ink-soft)]">
+                {latestDecision.confidence_notes}
+              </p>
+            )}
+            {latestDecision.outcome_notes && (
+              <p className="text-xs text-[var(--sea-ink-soft)]">
+                Notes: {latestDecision.outcome_notes}
+              </p>
+            )}
+            <p className="text-xs text-[var(--sea-ink-soft)]">
+              {new Date(latestDecision.created_at).toLocaleString()}
+            </p>
+
+            {/* Override controls */}
+            {!overrideOpen ? (
+              <button
+                type="button"
+                onClick={() => setOverrideOpen(true)}
+                className="mt-2 text-xs text-[var(--lagoon)] hover:underline"
+              >
+                Override this decision
+              </button>
+            ) : (
+              <div className="mt-3 space-y-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3">
+                <label className="block text-xs font-medium text-[var(--sea-ink)]">New action</label>
+                <select
+                  value={overrideAction}
+                  onChange={(e) => setOverrideAction(e.target.value)}
+                  className="w-full rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--sea-ink)]"
+                >
+                  <option value="">Select…</option>
+                  {Object.entries(ACTION_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+                <label className="block text-xs font-medium text-[var(--sea-ink)]">Reason</label>
+                <select
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  className="w-full rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--sea-ink)]"
+                >
+                  <option value="">Select…</option>
+                  {OVERRIDE_REASONS.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (overrideAction && overrideReason) {
+                        overrideMutation.mutate({
+                          decisionId: latestDecision.id,
+                          action: overrideAction,
+                          reason: overrideReason,
+                        })
+                        setOverrideOpen(false)
+                        setOverrideAction('')
+                        setOverrideReason('')
+                      }
+                    }}
+                    disabled={!overrideAction || !overrideReason || overrideMutation.isPending}
+                    className="rounded bg-[var(--lagoon)] px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+                  >
+                    {overrideMutation.isPending ? 'Overriding…' : 'Confirm override'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOverrideOpen(false)
+                      setOverrideAction('')
+                      setOverrideReason('')
+                    }}
+                    className="rounded border border-[var(--line)] px-3 py-1 text-xs text-[var(--sea-ink-soft)]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ── Last Evaluation Result (live from pipeline, not DB) ── */}
+      {evalMutation.data && (
+        <section className="mb-8">
+          <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">Evaluation Result</h2>
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4 space-y-3">
+            <p>
+              <span className="text-sm font-medium text-[var(--sea-ink)]">Recommended: </span>
+              <span className="text-sm text-[var(--sea-ink-soft)]">
+                {ACTION_LABELS[evalMutation.data.action] ?? evalMutation.data.action}
+              </span>
+            </p>
+            {evalMutation.data.reasoning && (
+              <p className="text-sm text-[var(--sea-ink-soft)]">{evalMutation.data.reasoning}</p>
+            )}
+            <p className="text-sm">
+              <span className="font-medium text-[var(--sea-ink)]">Confidence: </span>
+              <span className="text-[var(--sea-ink-soft)]">
+                {(evalMutation.data.confidence * 100).toFixed(0)}%
+              </span>
+              {evalMutation.data.escalate && (
+                <span className="ml-2 text-xs font-medium text-red-600">⚠ Escalate</span>
+              )}
+              {evalMutation.data.overrode_pass1 && (
+                <span className="ml-2 text-xs font-medium text-amber-600">Pass 1 overridden</span>
               )}
             </p>
             <details className="text-sm">
@@ -268,24 +456,22 @@ function ContactDetailPage() {
                 Pass 1 & 2 reasoning
               </summary>
               <p className="mt-2 text-[var(--sea-ink-soft)]">
-                {decision.pass1_reasoning}
+                <strong>Pass 1:</strong> {JSON.stringify(evalMutation.data.pass1_recommendation, null, 2)}
               </p>
               <p className="mt-2 text-[var(--sea-ink-soft)]">
-                {decision.pass2_reasoning}
+                <strong>Pass 2:</strong> {JSON.stringify(evalMutation.data.pass2_recommendation, null, 2)}
               </p>
             </details>
           </div>
         </section>
       )}
 
-      {/* History (Interactions, mock) */}
+      {/* ── Interaction History ── */}
       <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
-          History
-        </h2>
-        {interactions.length > 0 ? (
+        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">History</h2>
+        {interactions && interactions.length > 0 ? (
           <ul className="space-y-2">
-            {interactions.map((i) => (
+            {interactions.map((i: Interaction) => (
               <li
                 key={i.id}
                 className="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2"
@@ -293,28 +479,22 @@ function ContactDetailPage() {
                 <span className="text-xs text-[var(--sea-ink-soft)]">
                   {new Date(i.timestamp).toLocaleString()}
                 </span>
-                <span className="ml-2 text-xs text-[var(--sea-ink-soft)]">
-                  {i.type}
-                </span>
-                <p className="mt-1 text-sm text-[var(--sea-ink)]">
-                  {i.summary}
-                </p>
+                <span className="ml-2 text-xs text-[var(--sea-ink-soft)]">{i.type}</span>
+                {i.summary && (
+                  <p className="mt-1 text-sm text-[var(--sea-ink)]">{i.summary}</p>
+                )}
                 {i.outcome && (
-                  <span className="text-xs text-[var(--palm)]">
-                    Outcome: {i.outcome}
-                  </span>
+                  <span className="text-xs text-[var(--palm)]">Outcome: {i.outcome}</span>
                 )}
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-[var(--sea-ink-soft)]">
-            No interactions yet.
-          </p>
+          <p className="text-sm text-[var(--sea-ink-soft)]">No interactions yet.</p>
         )}
       </section>
 
-      {/* Profile JSON (engineering description) */}
+      {/* ── Behavioral profile JSON ── */}
       <section className="mb-8">
         <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
           Behavioral profile (engineering)
@@ -326,20 +506,15 @@ function ContactDetailPage() {
         </div>
       </section>
 
-      {/* Client context: upload via UploadThing */}
+      {/* ── Client context upload ── */}
       <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
-          Client context
-        </h2>
+        <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">Client context</h2>
         <p className="mb-3 text-sm text-[var(--sea-ink-soft)]">
-          Add context (PDF, CSV, Word, etc.) for this contact. Files are stored
-          via UploadThing.
+          Add context (PDF, CSV, Word, etc.) for this contact.
         </p>
         {uploadedFiles.length > 0 && (
           <div className="mb-4 space-y-2">
-            <p className="text-sm font-medium text-[var(--sea-ink)]">
-              Uploaded files
-            </p>
+            <p className="text-sm font-medium text-[var(--sea-ink)]">Uploaded files</p>
             <ul className="space-y-2">
               {uploadedFiles.map((file) => (
                 <li
