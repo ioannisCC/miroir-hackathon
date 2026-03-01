@@ -45,7 +45,7 @@ class EmailService:
         debt_amount: float | None = None,
     ) -> dict:
         """
-        Draft a behavioral-profile-adapted collections email.
+        Draft a behavioral-profile-adapted email.
         Returns subject, body, tone_notes.
         """
         profile = contact.get("behavior_profile", {})
