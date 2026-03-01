@@ -31,8 +31,17 @@ class Settings(BaseSettings):
 
     # --- Vapi ---
     vapi_api_key: str = ""
-    vapi_phone_number_id: str = ""
+    vapi_phone_number_id: str = "d2380b9a-3dfb-4248-a47f-62e227759e54"
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
     backend_url: str = "http://localhost:8000"  # for Vapi callbacks
+
+    # --- Voice Provider ---
+    voice_provider: str = "elevenlabs"  # "elevenlabs" or "vapi"
+
+    # --- ElevenLabs ---
+    elevenlabs_api_key: str = ""
+    elevenlabs_agent_id: str = "agent_6101kjk6qksyfkea6ef3k7beccxd"
+    elevenlabs_phone_number_id: str = "phnum_2001kjk6eptde3fv9dex21vhsdz9"
 
     # --- App ---
     environment: str = "development"
@@ -41,6 +50,10 @@ class Settings(BaseSettings):
     # --- Profile extraction ---
     min_threads_for_profile: int = 10
     max_threads_per_contact: int = 10
+
+    ## --- Resend (email sending service) ---
+    resend_api_key: str = ""
+    demo_email: str = "ioanniscatargiu@outlook.com"
 
     @property
     def is_production(self) -> bool:

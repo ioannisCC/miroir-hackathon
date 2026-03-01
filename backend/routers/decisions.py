@@ -92,6 +92,37 @@ def evaluate_contact(contact_id: UUID):
         logger.error("Failed to log decision for %s: %s", contact_id, e)
         # Don't fail the request — return result even if logging fails
 
+    # Auto-schedule follow-up so the autonomous loop continues
+    # Immediate actions execute now; others schedule for later
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        action = result["action"]
+        immediate_actions = {"send_email", "escalate_to_call", "escalate_to_human"}
+
+        if action in immediate_actions:
+            scheduled_at = datetime.now(timezone.utc).isoformat()
+        elif action == "schedule_followup":
+            scheduled_at = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+        elif action in ("close_resolved", "close_refused"):
+            scheduled_at = None  # No follow-up needed
+        else:
+            scheduled_at = datetime.now(timezone.utc).isoformat()
+
+        if scheduled_at is not None:
+            db.table("follow_ups").insert({
+                "contact_id": str(contact_id),
+                "scheduled_at": scheduled_at,
+                "action_type": action,
+                "status": "pending",
+            }).execute()
+            logger.info(
+                "Auto-scheduled follow-up — contact: %s action: %s",
+                contact_id, action,
+            )
+    except Exception as e:
+        logger.error("Failed to schedule follow-up for %s: %s", contact_id, e)
+
     return result
 
 

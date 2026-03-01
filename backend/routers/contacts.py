@@ -6,28 +6,31 @@ Contact management endpoints.
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.core.database import get_db
 from backend.core.logging import get_logger
 from backend.services.email_service import EmailService
+from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
 @router.get("")
-def list_contacts():
-    """Return all contacts ordered by risk score descending."""
+def list_contacts(use_case: str | None = Query(None, description="Filter by use_case. If omitted, auto-filters by active preset.")):
+    """Return contacts filtered by use_case (auto-detects from active preset)."""
     try:
         db = get_db()
-        result = (
-            db.table("contacts")
-            .select("*")
-            .order("risk_score", desc=True)
-            .execute()
-        )
+
+        # Auto-detect from active preset if not explicitly provided
+        if use_case is None:
+            gl = get_guidelines()
+            use_case = gl.get("preset_name", "debt_collection")
+
+        query = db.table("contacts").select("*").eq("use_case", use_case).order("risk_score", desc=True)
+        result = query.execute()
         return result.data
     except Exception as e:
         logger.error("Failed to list contacts: %s", e)
@@ -167,15 +170,31 @@ def execute_action(contact_id: UUID, body: ExecuteActionRequest):
     summary = f"Action executed: {body.action}"
     transcript = ""
 
-    # Draft email content if action is send_email
+    # Draft and SEND email if action is send_email
     if body.action == "send_email":
         try:
+            from backend.services.email_sender import send_email as _send
+            from backend.core.config import get_settings
+
             service = EmailService()
             draft = service.draft_email(contact, history)
             transcript = f"Subject: {draft.get('subject')}\n\n{draft.get('body')}"
             summary = f"Email sent ({draft.get('tone')} tone) — {draft.get('tone_notes')}"
+
+            settings = get_settings()
+            # Resend testing mode: can only send to verified account email
+            # Switch to contact.get("email") after verifying a domain at resend.com/domains
+            recipient = settings.demo_email
+            _send(
+                to=recipient,
+                subject=draft.get("subject"),
+                body=draft.get("body"),
+                contact_name=contact.get("name"),
+            )
+            logger.info("Email sent to %s", recipient)
+
         except Exception as e:
-            logger.error("Email draft failed during execute: %s", e)
+            logger.error("Email send failed: %s", e)
             raise HTTPException(status_code=500, detail=str(e))
 
     # Log interaction
@@ -218,4 +237,73 @@ def execute_action(contact_id: UUID, body: ExecuteActionRequest):
         "interaction_id": interaction_id,
         "summary": summary,
         "transcript": transcript,
+    }
+
+class PostCallRequest(BaseModel):
+    transcript: str
+    interaction_id: str | None = None
+
+
+@router.post("/{contact_id}/post-call")
+def post_call_analysis(contact_id: UUID, body: PostCallRequest):
+    """
+    Run post-call analysis on a transcript.
+    Updates behavioral profile in Supabase.
+    Returns before/after delta for dashboard display.
+    """
+    from backend.services.post_call import PostCallAnalyzer
+
+    db = get_db()
+
+    try:
+        contact = (
+            db.table("contacts")
+            .select("*")
+            .eq("id", str(contact_id))
+            .single()
+            .execute()
+            .data
+        )
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Contact not found: {e}")
+
+    try:
+        analyzer = PostCallAnalyzer()
+        analysis = analyzer.analyze(contact, body.transcript)
+        result = analyzer.apply_delta(contact, analysis)
+    except Exception as e:
+        logger.error("Post-call analysis failed for %s: %s", contact_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Write updated profile to Supabase
+    try:
+        db.table("contacts").update({
+            "behavior_profile": result["updated_profile"],
+            "trust_score": result["trust_score"],
+            "risk_score": result["risk_score"],
+        }).eq("id", str(contact_id)).execute()
+
+        # Update interaction summary if interaction_id provided
+        if body.interaction_id:
+            db.table("interactions").update({
+                "summary": analysis.get("outcome_notes", "Call analyzed"),
+            }).eq("id", body.interaction_id).execute()
+
+        logger.info(
+            "Profile updated post-call — contact: %s outcome: %s changed: %s",
+            contact.get("email"),
+            analysis.get("outcome"),
+            result["delta"]["changed_fields"],
+        )
+    except Exception as e:
+        logger.error("Failed to write post-call update: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "outcome": analysis.get("outcome"),
+        "outcome_notes": analysis.get("outcome_notes"),
+        "new_signals": analysis.get("new_signals", []),
+        "score_reasoning": analysis.get("score_reasoning", {}),
+        "delta": result["delta"],
+        "contact_id": str(contact_id),
     }

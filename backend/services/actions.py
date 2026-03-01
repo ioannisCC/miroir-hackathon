@@ -79,6 +79,23 @@ def check_hard_rules(
         if emails_sent < 2:
             return False, f"Only {emails_sent} email(s) sent — need 2 before calling"
 
+    # Business hours check for outbound contact actions
+    outbound_actions = {Action.send_email, Action.send_sms, Action.escalate_to_call}
+    if action in outbound_actions:
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import datetime as _dt
+            profile = contact.get("behavior_profile", {})
+            tz_name = profile.get("timezone") or "UTC"
+            local_hour = _dt.now(ZoneInfo(tz_name)).hour
+            if local_hour < 9 or local_hour >= 18:
+                return False, (
+                    f"Outside business hours — local time is {local_hour}:00 in {tz_name}. "
+                    f"No outbound contact before 09:00 or after 18:00."
+                )
+        except Exception:
+            pass  # If timezone check fails, allow action to proceed
+
     # Confidence floor per action
     floor = CONFIDENCE_FLOORS.get(action, 0.5)
     if confidence < floor:

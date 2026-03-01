@@ -14,25 +14,22 @@ import re
 
 from backend.core.config import get_settings
 from backend.core.logging import get_logger
+from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 
-SYSTEM_PROMPT = """
-You are a professional collections specialist drafting outreach emails.
+def _build_email_system_prompt() -> str:
+    """Build email system prompt from live guidelines."""
+    gl = get_guidelines()
+    email_rules = gl["email_rules"]
+    agent_role = gl.get("agent_role", "professional collections specialist")
+    rules_block = "\n".join(f"- {line.strip()}" for line in email_rules.split("\n") if line.strip())
+    return f"""You are a {agent_role} drafting outreach emails.
 
 RULES:
-- Adapt tone entirely to the contact's behavioral profile
-- Never threaten legal action
-- Never use aggressive or demeaning language
-- Never create false urgency or fabricate deadlines
-- Never imply consequences you cannot deliver
-- Be specific — reference the debt amount and any prior contact
-- Keep it under 200 words
-- End with a clear single call to action
-- Sign as [Agent Name] — never impersonate a specific person
+{rules_block}
 
-Return JSON only. No markdown. No preamble.
-""".strip()
+Return JSON only. No markdown. No preamble."""
 
 
 class EmailService:
@@ -48,7 +45,7 @@ class EmailService:
         debt_amount: float | None = None,
     ) -> dict:
         """
-        Draft a behavioral-profile-adapted collections email.
+        Draft a behavioral-profile-adapted email.
         Returns subject, body, tone_notes.
         """
         profile = contact.get("behavior_profile", {})
@@ -59,13 +56,42 @@ class EmailService:
         ]
 
         prior_emails_block = json.dumps(
-            [{"summary": i.get("summary"), "transcript": (i.get("transcript", "") or "")[:200]} for i in prior_emails],
+            [
+                {
+                    "summary": str(i.get("summary") or ""),
+                    "transcript": str(i.get("transcript") or "")[:200],
+                }
+                for i in prior_emails
+            ],
             indent=2,
         )
 
+        # Contact's local time for time-appropriate greetings
+        contact_tz = profile.get("timezone") or "UTC"
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import datetime
+            local_now = datetime.now(ZoneInfo(contact_tz))
+            local_time_str = local_now.strftime("%A %H:%M") + f" ({contact_tz})"
+        except Exception:
+            local_time_str = "unknown"
+
+        # Dynamic context from guidelines (debt vs recruitment)
+        gl = get_guidelines()
+        context_label = gl.get("context_label", "OUTSTANDING DEBT")
+        context_value_prefix = gl.get("context_value_prefix", "€")
+        agent_role = gl.get("agent_role", "professional collections specialist")
+
+        if context_value_prefix:
+            context_value = f"{context_value_prefix}{debt:,.0f}"
+        else:
+            context_value = f"{debt:,.0f}" if debt else "Not specified"
+
         prompt = f"""
-Draft a collections email for: {contact.get('name')} <{contact.get('email')}>
-Debt amount: €{debt:,.0f}
+Draft a professional email for: {contact.get('name')} <{contact.get('email')}>
+You are writing as a {agent_role}.
+Contact's current local time: {local_time_str}
+{context_label}: {context_value}
 
 Emails sent so far: {len(prior_emails)}
 Prior email summaries:
@@ -82,7 +108,7 @@ Trust score: {contact.get('trust_score')}
 Risk score: {contact.get('risk_score')}
 
 PRIOR INTERACTIONS:
-{json.dumps([{{'type': i.get('type'), 'summary': i.get('summary')}} for i in interaction_history[-5:]], indent=2)}
+{json.dumps([{'type': str(i.get('type') or ''), 'summary': str(i.get('summary') or '')} for i in interaction_history[-5:]], indent=2)}
 
 Draft the email. Return:
 {{
@@ -97,7 +123,7 @@ Draft the email. Return:
             response = self._client.messages.create(
                 model=self._model,
                 max_tokens=1024,
-                system=SYSTEM_PROMPT,
+                system=_build_email_system_prompt(),
                 messages=[{"role": "user", "content": prompt}],
             )
         except anthropic.APIError as e:
