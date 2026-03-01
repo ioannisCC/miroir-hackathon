@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     vapi_api_key: str = ""
     vapi_phone_number_id: str = "d2380b9a-3dfb-4248-a47f-62e227759e54"
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
-    backend_url: str = "http://localhost:8000"  # for Vapi callbacks
+    backend_url: str = "https://miroir-backend.up.railway.app"  # for Vapi callbacks
 
     # --- Voice Provider ---
     voice_provider: str = "elevenlabs"  # "elevenlabs" or "vapi"
