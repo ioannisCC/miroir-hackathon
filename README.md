@@ -35,6 +35,37 @@ From communication history we build a **behavioral profile** — reply speed, to
 
 Switch presets with one click in the dashboard — the entire system adapts: guidelines, prompts, call rules, email rules.
 
+### Autonomous scheduling
+
+MIROIR doesn't wait for a human to press buttons. An **autonomous scheduler** runs every 60 seconds, checking the `follow_ups` table for due actions:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   AUTONOMOUS LOOP (60s)                  │
+│                                                          │
+│  1. Query follow_ups WHERE status=pending AND due ≤ now  │
+│  2. For each due action:                                 │
+│     • Business hours gate (09:00–18:00 contact local)    │
+│     • If outside hours → reschedule to next 09:00        │
+│     • If inside hours → execute action:                  │
+│       - send_email    → drafts + sends via Resend        │
+│       - escalate_to_call → triggers ElevenLabs call      │
+│       - escalate_to_human → flags for human review       │
+│       - evaluate      → runs full LLM evaluation cycle   │
+│  3. Mark completed / failed → dead letter queue on error │
+│                                                          │
+│  Empty table = completely silent. No polling noise.      │
+└─────────────────────────────────────────────────────────┘
+```
+
+Follow-ups are created automatically after calls (post-call analysis) and evaluations. The system chains actions: **evaluate → decide → schedule follow-up → execute → re-evaluate** — a fully autonomous loop that only stops when the goal is met or a human intervenes.
+
+To trigger a demo follow-up manually:
+```sql
+INSERT INTO follow_ups (contact_id, scheduled_at, action_type, status)
+VALUES ('<contact_id>', now() + interval '2 minutes', 'send_email', 'pending');
+```
+
 ---
 
 ## Architecture
