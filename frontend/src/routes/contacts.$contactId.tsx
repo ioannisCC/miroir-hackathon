@@ -17,11 +17,10 @@ import {
 import {
   ACTION_LABELS,
   OVERRIDE_REASONS,
-  MOCK_CONTEXT_FILES,
   MOCK_LIVE_TRANSCRIPT,
   MOCK_DECISION_LOG,
 } from '#/lib/mock'
-import { UploadDropzone } from '#/lib/uploadthing'
+import { analyzeContractForContact } from '#/lib/api'
 
 export const Route = createFileRoute('/contacts/$contactId')({
   component: ContactDetailPage,
@@ -95,8 +94,10 @@ function ContactDetailPage() {
   const [overrideReason, setOverrideReason] = useState('')
 
   const [uploadedFiles, setUploadedFiles] = useState<
-    { name: string; url: string; key: string | null; size: number }[]
-  >(MOCK_CONTEXT_FILES)
+    { name: string; size: number; analysis: Record<string, unknown> | null }[]
+  >([])
+  const [fileUploading, setFileUploading] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
   const [profileCopied, setProfileCopied] = useState(false)
 
   const handleCopyProfile = async () => {
@@ -539,69 +540,92 @@ function ContactDetailPage() {
       <section className="mb-8">
         <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">Client context</h2>
         <p className="mb-3 text-sm text-[var(--sea-ink-soft)]">
-          Add context (PDF, CSV, Word, etc.) for this contact.
+          Upload a contract or document (PDF) to analyze and enrich this contact's profile.
         </p>
         {uploadedFiles.length > 0 && (
           <div className="mb-4 space-y-2">
-            <p className="text-sm font-medium text-[var(--sea-ink)]">Uploaded files</p>
+            <p className="text-sm font-medium text-[var(--sea-ink)]">Analyzed files</p>
             <ul className="space-y-2">
-              {uploadedFiles.map((file) => (
+              {uploadedFiles.map((file, idx) => (
                 <li
-                  key={file.key ?? file.url}
-                  className="group flex items-center justify-between gap-2 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-1"
+                  key={`${file.name}-${idx}`}
+                  className="group rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2"
                 >
-                  <a
-                    href={file.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="min-w-0 flex-1 truncate text-sm leading-snug text-[var(--lagoon)] hover:underline"
-                  >
-                    {file.name}
-                  </a>
-                  <span className="shrink-0 text-xs leading-snug text-[var(--sea-ink-soft)] transition-transform duration-200 ease-out group-hover:-translate-x-1">
-                    {(file.size / 1024).toFixed(1)} KB
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setUploadedFiles((prev) =>
-                        prev.filter(
-                          (f) => (f.key && f.key !== file.key) || f.url !== file.url,
-                        ),
-                      )
-                    }
-                    className="h-0 min-h-0 max-w-0 shrink-0 overflow-hidden rounded px-0 py-0 text-xs font-medium leading-none text-red-600 opacity-0 transition-all duration-200 ease-out hover:bg-red-50 hover:text-red-700 group-hover:h-auto group-hover:min-h-0 group-hover:max-w-[5rem] group-hover:px-2 group-hover:py-0.5 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:text-red-400 dark:hover:text-red-300"
-                    aria-label={`Delete ${file.name}`}
-                  >
-                    Delete
-                  </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--sea-ink)]">
+                      {file.name}
+                    </span>
+                    <span className="shrink-0 text-xs text-[var(--sea-ink-soft)]">
+                      {(file.size / 1024).toFixed(1)} KB
+                    </span>
+                    <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      Analyzed ✓
+                    </span>
+                  </div>
+                  {file.analysis && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-[var(--lagoon)] hover:underline">View analysis</summary>
+                      <pre className="mt-1 max-h-48 overflow-auto rounded bg-[var(--foam)] p-2 text-xs leading-relaxed text-[var(--sea-ink-soft)]">
+                        {JSON.stringify(file.analysis, null, 2)}
+                      </pre>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>
           </div>
         )}
-        <UploadDropzone
-          endpoint="contextFile"
-          className="mb-4 rounded-xl border-2 border-dashed border-[var(--line)] bg-[var(--foam)] p-8 transition-colors hover:border-[var(--lagoon)] hover:bg-[var(--surface)] ut-uploading:border-[var(--lagoon)] ut-uploading:bg-[var(--surface)]"
-          onClientUploadComplete={(res) => {
-            if (res?.length) {
-              setUploadedFiles((prev) => [
-                ...prev,
-                ...res.map((f) => ({
-                  name: f.name,
-                  url: f.url,
-                  key: f.key ?? null,
-                  size: f.size,
-                })),
-              ])
-            }
-          }}
-          onUploadError={(err) => {
-            console.error('Upload error:', err)
-          }}
-        />
+        <label
+          className={`mb-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 transition-colors ${
+            fileUploading
+              ? 'border-[var(--lagoon)] bg-[var(--surface)]'
+              : 'border-[var(--line)] bg-[var(--foam)] hover:border-[var(--lagoon)] hover:bg-[var(--surface)]'
+          }`}
+        >
+          <input
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg"
+            className="hidden"
+            disabled={fileUploading}
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              setFileUploading(true)
+              setFileError(null)
+              try {
+                const result = await analyzeContractForContact(contactId, file)
+                setUploadedFiles((prev) => [
+                  ...prev,
+                  { name: file.name, size: file.size, analysis: result },
+                ])
+                qc.invalidateQueries({ queryKey: ['contact', contactId] })
+              } catch (err) {
+                console.error('Upload error:', err)
+                setFileError(err instanceof Error ? err.message : 'Upload failed')
+              } finally {
+                setFileUploading(false)
+                e.target.value = ''
+              }
+            }}
+          />
+          {fileUploading ? (
+            <>
+              <div className="mb-2 h-6 w-6 animate-spin rounded-full border-2 border-[var(--lagoon)] border-t-transparent" />
+              <span className="text-sm font-medium text-[var(--lagoon)]">Analyzing with Claude…</span>
+            </>
+          ) : (
+            <>
+              <span className="mb-1 text-2xl">📄</span>
+              <span className="text-sm font-medium text-[var(--sea-ink)]">Drop a file or click to upload</span>
+              <span className="text-xs text-[var(--sea-ink-soft)]">PDF, PNG, JPG — max 8 MB</span>
+            </>
+          )}
+        </label>
+        {fileError && (
+          <p className="mb-2 text-sm text-red-600 dark:text-red-400">{fileError}</p>
+        )}
         <p className="text-sm text-[var(--sea-ink-soft)]">
-          Uploaded files appear above and in your UploadThing dashboard.
+          Files are analyzed by Claude and signals are saved to the contact's profile.
         </p>
       </section>
     </main>
