@@ -43,15 +43,26 @@ def _build_system_prompt(contact: dict) -> str:
     gl = get_guidelines()
     call_rules = gl["call_rules"]
     general_context = gl["general_context"]
+    agent_name = gl.get("agent_name", "Miroir")
+    agent_role = gl.get("agent_role", "professional collections specialist")
+    context_label = gl.get("context_label", "OUTSTANDING DEBT")
+    context_value_prefix = gl.get("context_value_prefix", "€")
 
     # Format call rules as bullet list
     rules_block = "\n".join(f"- {line.strip()}" for line in call_rules.split("\n") if line.strip())
 
-    return f"""You are Miroir, a professional collections specialist.
+    # Format context value (e.g. "€5,000" for debt, "Senior Engineer" for recruitment)
+    if context_value_prefix:
+        context_value = f"{context_value_prefix}{debt:,.0f}"
+    else:
+        # Non-numeric context (e.g. job title stored in debt_amount field or profile)
+        context_value = f"{debt:,.0f}" if debt else "Not specified"
+
+    return f"""You are {agent_name}, a {agent_role}.
 {general_context}
 
 CONTACT: {contact.get('name')} <{contact.get('email')}>
-OUTSTANDING DEBT: €{debt:,.0f}
+{context_label}: {context_value}
 
 BEHAVIORAL PROFILE:
 {profile.get('summary', 'No profile summary available.')}
@@ -102,6 +113,9 @@ async def _start_call_elevenlabs(contact: dict, contact_id: str) -> dict:
     system_prompt = _build_system_prompt(contact)
     phone = contact.get("behavior_profile", {}).get("phone") or DEMO_PHONE
 
+    gl = get_guidelines()
+    first_message = gl.get("first_message_template", "Good morning {first_name}. Is this a good time to talk?").format(first_name=first_name)
+
     payload = {
         "agent_id": settings.elevenlabs_agent_id,
         "agent_phone_number_id": settings.elevenlabs_phone_number_id,
@@ -115,11 +129,7 @@ async def _start_call_elevenlabs(contact: dict, contact_id: str) -> dict:
                     "prompt": {
                         "prompt": system_prompt,
                     },
-                    "first_message": (
-                        f"Good morning {first_name}. "
-                        f"I'm calling regarding an outstanding balance. "
-                        f"Is this a good time to talk?"
-                    ),
+                    "first_message": first_message,
                 }
             },
         },
@@ -168,6 +178,8 @@ async def _start_call_vapi(contact: dict, contact_id: str) -> dict:
     system_prompt = _build_system_prompt(contact)
     phone = contact.get("behavior_profile", {}).get("phone") or DEMO_PHONE
 
+    gl = get_guidelines()
+
     payload = {
         "phoneNumberId": settings.vapi_phone_number_id,
         "assistant": {
@@ -193,11 +205,7 @@ async def _start_call_vapi(contact: dict, contact_id: str) -> dict:
                 "model": "nova-3",
                 "language": "en",
             },
-            "firstMessage": (
-                f"Good morning {first_name}. "
-                f"I'm calling regarding an outstanding balance. "
-                f"Is this a good time to talk?"
-            ),
+            "firstMessage": gl.get("first_message_template", "Good morning {first_name}. Is this a good time to talk?").format(first_name=first_name),
             "endCallPhrases": ["goodbye", "talk soon", "thank you goodbye"],
             "startSpeakingPlan": {"waitSeconds": 0.4, "smartEndpointingEnabled": True},
             "stopSpeakingPlan": {"numWords": 2, "voiceSeconds": 0.3, "backoffSeconds": 0.8},
@@ -477,12 +485,10 @@ def get_call_prompt(contact_id: UUID):
     """
     contact = _load_contact(str(contact_id))
     first_name = contact.get("name", "").split()[0]
+    gl = get_guidelines()
+    first_message = gl.get("first_message_template", "Good morning {first_name}. Is this a good time to talk?").format(first_name=first_name)
     return {
         "system_prompt": _build_system_prompt(contact),
-        "first_message": (
-            f"Good morning {first_name}. "
-            f"I'm calling regarding an outstanding balance. "
-            f"Is this a good time to talk?"
-        ),
+        "first_message": first_message,
         "contact_name": contact.get("name"),
     }

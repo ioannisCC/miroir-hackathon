@@ -22,8 +22,9 @@ def _build_email_system_prompt() -> str:
     """Build email system prompt from live guidelines."""
     gl = get_guidelines()
     email_rules = gl["email_rules"]
+    agent_role = gl.get("agent_role", "professional collections specialist")
     rules_block = "\n".join(f"- {line.strip()}" for line in email_rules.split("\n") if line.strip())
-    return f"""You are a professional collections specialist drafting outreach emails.
+    return f"""You are a {agent_role} drafting outreach emails.
 
 RULES:
 {rules_block}
@@ -75,10 +76,22 @@ class EmailService:
         except Exception:
             local_time_str = "unknown"
 
+        # Dynamic context from guidelines (debt vs recruitment)
+        gl = get_guidelines()
+        context_label = gl.get("context_label", "OUTSTANDING DEBT")
+        context_value_prefix = gl.get("context_value_prefix", "€")
+        agent_role = gl.get("agent_role", "professional collections specialist")
+
+        if context_value_prefix:
+            context_value = f"{context_value_prefix}{debt:,.0f}"
+        else:
+            context_value = f"{debt:,.0f}" if debt else "Not specified"
+
         prompt = f"""
-Draft a collections email for: {contact.get('name')} <{contact.get('email')}>
+Draft a professional email for: {contact.get('name')} <{contact.get('email')}>
+You are writing as a {agent_role}.
 Contact's current local time: {local_time_str}
-Debt amount: €{debt:,.0f}
+{context_label}: {context_value}
 
 Emails sent so far: {len(prior_emails)}
 Prior email summaries:

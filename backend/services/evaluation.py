@@ -21,20 +21,23 @@ from backend.services.guidelines import get_guidelines
 
 logger = get_logger(__name__)
 
-PASS1_SYSTEM = """
-You are a behavioral collections strategist. You have no company guidelines — only the data.
+def _build_pass1_system() -> str:
+    """Build Pass 1 system prompt — behavioral only, no guidelines."""
+    gl = get_guidelines()
+    agent_role = gl.get("agent_role", "collections strategist")
+    return f"""You are a behavioral {agent_role}. You have no company guidelines — only the data.
 
 Given a contact's behavioral profile and interaction history, decide what should happen next.
 Be honest and specific. Explain your reasoning based on observable patterns only.
 
-Return JSON only. No markdown. No preamble.
-""".strip()
+Return JSON only. No markdown. No preamble.""".strip()
 
 def _build_pass2_system() -> str:
     """Build Pass 2 system prompt with live evaluation rules."""
     gl = get_guidelines()
     eval_rules = gl["evaluation_rules"]
-    return f"""You are a compliance-aware collections strategist. You follow company guidelines strictly.
+    agent_role = gl.get("agent_role", "collections strategist")
+    return f"""You are a compliance-aware {agent_role}. You follow company guidelines strictly.
 
 You will receive:
 1. A contact's behavioral profile and interaction history
@@ -100,7 +103,7 @@ Pressure score: {profile.get('pressure_score')}
 
 Risk indicators: {json.dumps([r.get('signal') if isinstance(r, dict) else r for r in profile.get('risk_indicators', [])])}
 
-COLLECTIONS LADDER POSITION:
+ENGAGEMENT LADDER POSITION:
 Emails sent: {emails_sent}
 Calls made: {calls_made}
 Days since first contact: {days_since_first_contact}
@@ -192,7 +195,7 @@ class EvaluationPipeline:
         context = _build_context(contact, interaction_history)
 
         logger.info("Pass 1 evaluation for %s", contact.get("email"))
-        pass1 = self._call_claude(PASS1_SYSTEM, _build_pass1_prompt(context))
+        pass1 = self._call_claude(_build_pass1_system(), _build_pass1_prompt(context))
 
         logger.info("Pass 2 evaluation for %s", contact.get("email"))
         pass2 = self._call_claude(_build_pass2_system(), _build_pass2_prompt(context, pass1))
