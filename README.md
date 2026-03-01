@@ -1,8 +1,19 @@
 # MIROIR
 
-Behavioral intelligence layer for collections operations. Profiles contacts from communication history, decides how to engage, logs every decision.
+**Autonomous behavioral intelligence agent** that profiles contacts from communication history, decides how to engage them, and executes actions — calls, emails, escalations — with full audit logging.
 
-> Built at Build a Zero Human Company Hackathon 2026 · Athens
+> Built at **Build a Zero Human Company Hackathon 2026** · Athens
+
+---
+
+## 🌐 Live Demo
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | [lively-solace-production-3e55.up.railway.app](https://lively-solace-production-3e55.up.railway.app) |
+| **Backend API** | [miroir-backend.up.railway.app](https://miroir-backend.up.railway.app) |
+| **API Docs** (Swagger) | [miroir-backend.up.railway.app/docs](https://miroir-backend.up.railway.app/docs) |
+| **Health Check** | [miroir-backend.up.railway.app/health](https://miroir-backend.up.railway.app/health) |
 
 ---
 
@@ -10,89 +21,340 @@ Behavioral intelligence layer for collections operations. Profiles contacts from
 
 MIROIR analyzes **all communications between the steerer and the steerie**:
 
-- **Steerer** — The person leading the conversation (e.g. sales rep, debt collector, account manager).
-- **Steerie** — The customer or contact on the other side of the conversation.
+- **Steerer** — The agent leading the conversation (debt collector, recruiter, sales rep).
+- **Steerie** — The contact on the other side.
 
-From that history we build a **behavioural profile** of the steerie. The agent uses this profile to know **how to steer the conversation** so the steerer’s goal is met — for example:
+From communication history we build a **behavioral profile** — reply speed, tone, follow-through, pressure response, risk indicators. The agent uses this profile to decide **how to talk to each contact** to maximize the chance of achieving the steerer's objective.
 
-- **Sales:** steer the conversation toward a successful sale.
-- **Debt collection:** steer the conversation so the steerie is convinced to pay or commit to a plan.
+### Two presets, one system
 
-So the system learns *how* to talk to each contact to maximise the chance of achieving the steerer’s objective.
+| Preset | Objective | Example |
+|--------|-----------|---------|
+| 💰 **Debt Collection** | Get the contact to commit to a payment plan | 5 Enron contacts with full behavioral profiles |
+| 🎯 **Recruitment** | Get the candidate to schedule an interview | 3 contacts across cold → warm spectrum |
+
+Switch presets with one click in the dashboard — the entire system adapts: guidelines, prompts, call rules, email rules.
 
 ---
 
-## Run locally
+## Architecture
 
-**Requirements:** Python 3.12+, [uv](https://docs.astral.sh/uv/)
+```
+┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
+│   Frontend   │────▶│   FastAPI Backend │────▶│   Supabase   │
+│  React + TSR │     │   + Claude LLM   │     │  PostgreSQL  │
+└─────────────┘     └──────┬───────────┘     └──────────────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        ElevenLabs     Anthropic     Resend
+        (voice calls)  (Claude AI)   (emails)
+```
+
+---
+
+## 🚀 Local Installation
+
+### Prerequisites
+
+- **Python 3.12+**
+- **[uv](https://docs.astral.sh/uv/)** (Python package manager)
+- **Node.js 20+** and **pnpm** (for frontend)
+- A **Supabase** project with the required tables
+- An **Anthropic** API key (Claude)
+
+### 1. Clone & install backend
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/miroir-hackathon.git
+git clone https://github.com/ioannisCC/miroir-hackathon.git
 cd miroir-hackathon
 uv sync
+```
+
+### 2. Configure environment
+
+```bash
 cp backend/.env.example backend/.env
-# fill in backend/.env — see below
+```
+
+Edit `backend/.env`:
+
+```env
+# Required
+ANTHROPIC_API_KEY=sk-ant-...
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=eyJ...
+
+# Voice calls (optional — pick one)
+VOICE_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY=...
+ELEVENLABS_AGENT_ID=...
+
+# Email sending (optional)
+RESEND_API_KEY=re_...
+DEMO_EMAIL=your@email.com
+
+# App
+ENVIRONMENT=development
+BACKEND_URL=http://localhost:8000
+```
+
+### 3. Start backend
+
+```bash
 uv run uvicorn backend.main:app --reload --port 8000
 ```
 
-Health check: `http://localhost:8000/health`  
-API docs: `http://localhost:8000/docs`
+Verify: [http://localhost:8000/health](http://localhost:8000/health)  
+API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
----
-
-## Environment variables
-
-```env
-ANTHROPIC_API_KEY=
-SUPABASE_URL=
-SUPABASE_SERVICE_KEY=
-VAPI_API_KEY=
-VAPI_ASSISTANT_ID=
-BACKEND_URL=http://localhost:8000
-ENVIRONMENT=development
-```
-
----
-
-## Load demo contacts
-
-5 pre-built behavioral profiles from the Enron dataset:
+### 4. Seed demo data
 
 ```bash
+# Debt collection contacts (5 Enron profiles)
 uv run python scripts/push_profiles_to_supabase.py
+
+# Recruitment contacts (3 candidates)
+uv run python scripts/seed_recruitment_contacts.py
 ```
 
----
-
-## Run the frontend
-
-From the project root:
+### 5. Start frontend
 
 ```bash
 cd frontend
-nvm use
 pnpm install
 pnpm dev
 ```
 
-The app will be available at `http://localhost:3000` (or the port shown in the terminal).
+Open [http://localhost:3000](http://localhost:3000)
+
+> **Note:** Set `VITE_API_URL=http://localhost:8000` in `frontend/.env` or it defaults to `http://localhost:8000`.
 
 ---
 
-## Frontend (file uploads)
+## 📋 Testing the Features
 
-The frontend uses [UploadThing](https://uploadthing.com) for client-context file uploads (PDF, CSV, Word). To enable uploads:
+### Via the Dashboard (Frontend)
 
-1. Sign up at [uploadthing.com](https://uploadthing.com) and create an app.
-2. Copy your token from the dashboard.
-3. In the `frontend/` directory, copy `.env.example` to `.env` and set:
-   ```env
-   UPLOADTHING_TOKEN=your_token_here
-   ```
-4. Restart the dev server. Uploads will work from the contact detail page (Client context section).
+1. **Switch presets** — Click 💰 or 🎯 at the top. Contacts list and guidelines update instantly.
+2. **Evaluate a contact** — Open a contact → click **Evaluate**. Claude analyzes the profile and recommends the next action.
+3. **Send an email** — Click **Send Email**. Claude drafts a profile-adapted email and sends it via Resend.
+4. **Start a call** — Click **Call**. ElevenLabs initiates an outbound voice call using the behavioral profile.
+5. **Override a decision** — After evaluation, click **Override** to change the recommended action with a reason.
+6. **Upload a document** — Drag a PDF into the "Client context" section. Claude analyzes it and merges signals into the profile.
+7. **Edit guidelines** — Edit the general context or call rules directly in the dashboard. Changes take effect immediately.
+
+### Via curl (API)
+
+All endpoints below work against the live deployment. Replace `localhost:8000` with `miroir-backend.up.railway.app` for production.
+
+**List contacts (recruitment preset):**
+```bash
+curl "http://localhost:8000/contacts?use_case=recruitment"
+```
+
+**Get a single contact:**
+```bash
+curl http://localhost:8000/contacts/{contact_id}
+```
+
+**Evaluate a contact (Claude decides next action):**
+```bash
+curl -X POST http://localhost:8000/decisions/{contact_id}/evaluate
+```
+
+**Send a behavioral-profile-adapted email:**
+```bash
+curl -X POST http://localhost:8000/contacts/{contact_id}/execute-action \
+  -H "Content-Type: application/json" \
+  -d '{"action": "send_email"}'
+```
+
+**Start a voice call:**
+```bash
+curl -X POST http://localhost:8000/vapi/call/{contact_id}
+```
+
+**Draft an email (without sending):**
+```bash
+curl -X POST http://localhost:8000/contacts/{contact_id}/draft-email
+```
+
+**Override a decision:**
+```bash
+curl -X POST http://localhost:8000/decisions/{decision_id}/override \
+  -H "Content-Type: application/json" \
+  -d '{"action": "send_email", "reason": "Candidate responded positively on LinkedIn"}'
+```
+
+**Switch to recruitment preset:**
+```bash
+curl -X POST http://localhost:8000/guidelines/preset/recruitment
+```
+
+**Switch to debt collection preset:**
+```bash
+curl -X POST http://localhost:8000/guidelines/preset/debt_collection
+```
+
+**Analyze a contract PDF:**
+```bash
+curl -X POST http://localhost:8000/contracts/analyze/{contact_id} \
+  -F "file=@contract.pdf"
+```
+
+**Get the voice prompt for a contact:**
+```bash
+curl http://localhost:8000/vapi/prompt/{contact_id}
+```
+
+**View guidelines:**
+```bash
+curl http://localhost:8000/guidelines
+```
+
+**Update guidelines:**
+```bash
+curl -X PUT http://localhost:8000/guidelines \
+  -H "Content-Type: application/json" \
+  -d '{"general_context": "We are a friendly team that values respect."}'
+```
+
+---
+
+## 🗂️ API Reference
+
+### Contacts — `/contacts`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/contacts` | List contacts (auto-filtered by active preset) |
+| `GET` | `/contacts/{id}` | Get contact with full behavioral profile |
+| `GET` | `/contacts/{id}/interactions` | Interaction history (calls, emails) |
+| `GET` | `/contacts/{id}/decisions` | Decision history with reasoning |
+| `POST` | `/contacts/{id}/draft-email` | Draft a profile-adapted email |
+| `POST` | `/contacts/{id}/execute-action` | Execute action (send_email, escalate_to_call, escalate_to_human) |
+| `POST` | `/contacts/{id}/post-call` | Post-call analysis — update profile from transcript |
+
+### Decisions — `/decisions`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/decisions/{contact_id}/evaluate` | Two-pass LLM evaluation → recommended action |
+| `POST` | `/decisions/{id}/override` | Operator override with audit reason |
+
+### Contracts — `/contracts`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/contracts/analyze` | Analyze PDF/image — return structured data |
+| `POST` | `/contracts/analyze/{contact_id}` | Analyze and merge signals into contact profile |
+
+### Voice — `/vapi`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/vapi/call/{contact_id}` | Initiate outbound call (ElevenLabs or Vapi) |
+| `POST` | `/vapi/webhook` | Call lifecycle webhook (saves transcript, triggers analysis) |
+| `GET` | `/vapi/prompt/{contact_id}` | Get system prompt + first message for browser calls |
+
+### Guidelines — `/guidelines`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/guidelines` | Read current guidelines |
+| `PUT` | `/guidelines` | Update guidelines (partial) |
+| `POST` | `/guidelines/preset/{name}` | Activate a preset (debt_collection / recruitment) |
+| `GET` | `/guidelines/active` | Get active preset metadata |
+| `GET` | `/guidelines/presets` | List available preset names |
+
+---
+
+## 🧪 Demo Contacts
+
+### Debt Collection (5 contacts)
+
+| Name | Trust | Risk | Profile |
+|------|-------|------|---------|
+| Jeff Dasovich | 0.70 | 0.20 | Highly responsive, relationship-focused |
+| John Arnold | 0.70 | 0.46 | Direct, technically precise trader |
+| Vince Kaminski | 0.60 | 0.36 | Hierarchical, analytical risk officer |
+| Steven Kean | 0.45 | 1.00 | Selective, high-level engagement only |
+| Jeff Skilling | 0.45 | 0.40 | Delegates everything, hard to reach |
+
+### Recruitment (3 contacts)
+
+| Name | Trust | Risk | Scenario |
+|------|-------|------|----------|
+| Maria Konstantinou | 0.45 | 0.65 | ⚡ **Cold call** — zero prior contact, found on LinkedIn |
+| Nikos Andreou | 0.58 | 0.48 | 🔄 **Intermediate** — replied once, then went silent 12 days |
+| Alex Papadopoulos | 0.78 | 0.55 | 🎯 **Warm** — deep profile, known preferences |
+
+---
+
+## 📁 Project Structure
+
+```
+miroir-hackathon/
+├── backend/
+│   ├── main.py                 # FastAPI app entry point
+│   ├── core/
+│   │   ├── config.py           # All env vars loaded here
+│   │   ├── database.py         # Supabase client
+│   │   └── logging.py          # Structured logging
+│   ├── models/
+│   │   └── schemas.py          # Pydantic models (BehaviorProfile, Contact, etc.)
+│   ├── routers/
+│   │   ├── contacts.py         # Contact CRUD + actions
+│   │   ├── decisions.py        # Evaluation + override
+│   │   ├── contracts.py        # PDF analysis
+│   │   ├── vapi.py             # Voice call management
+│   │   └── guidelines.py       # Preset switching + guideline editing
+│   ├── services/
+│   │   ├── email_service.py    # Claude-drafted emails
+│   │   ├── email_sender.py     # Resend integration
+│   │   ├── evaluation.py       # Two-pass LLM evaluation
+│   │   ├── pipeline.py         # Full pipeline orchestration
+│   │   ├── profiler.py         # Map-reduce profile extraction
+│   │   ├── contract_service.py # PDF → Claude vision analysis
+│   │   ├── guidelines.py       # Preset definitions + Supabase sync
+│   │   ├── scheduler.py        # APScheduler for autonomous follow-ups
+│   │   ├── human_escalation.py # Human agent briefing generator
+│   │   └── enron.py            # Enron dataset loader
+│   └── prompts/
+│       └── profile_extraction.py
+├── frontend/
+│   ├── src/
+│   │   ├── routes/
+│   │   │   ├── index.tsx       # Dashboard — presets, guidelines, contacts list
+│   │   │   └── contacts.$contactId.tsx  # Contact detail — full UI
+│   │   ├── lib/
+│   │   │   ├── api.ts          # 18 API endpoint helpers
+│   │   │   ├── mock.ts         # UI constants (action labels, reasons)
+│   │   │   └── utils.ts        # cn() + prettyPrintJson()
+│   │   └── components/
+│   │       └── JsonHighlight.tsx
+│   └── package.json
+├── scripts/
+│   ├── push_profiles_to_supabase.py   # Seed debt collection contacts
+│   ├── seed_recruitment_contacts.py   # Seed recruitment contacts
+│   ├── run_profiling.py               # Extract profiles from Enron emails
+│   └── download_enron.py              # Download Enron dataset
+└── pyproject.toml
+```
 
 ---
 
 ## Stack
 
-Python · FastAPI · Claude Sonnet · Supabase · Vapi · ElevenLabs · React 19 · Railway · Vercel
+**Backend:** Python · FastAPI · Claude Sonnet · Supabase · APScheduler  
+**Frontend:** React 19 · TanStack Router/Start · Tailwind CSS 4 · Vite 7  
+**Voice:** ElevenLabs Conversational AI  
+**Email:** Resend  
+**Deploy:** Railway
+
+---
+
+## License
+
+Built for the hackathon. Do whatever you want with it.
