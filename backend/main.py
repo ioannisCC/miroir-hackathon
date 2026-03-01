@@ -49,12 +49,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
-app.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
-app.include_router(contracts.router, prefix="/contracts", tags=["contracts"])
-app.include_router(vapi.router, prefix="/vapi", tags=["vapi"])
-app.include_router(guidelines.router, prefix="/guidelines", tags=["guidelines"])
-
+# CORS — must be added before routers so preflight OPTIONS requests are handled
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -62,6 +57,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(contacts.router, prefix="/contacts", tags=["contacts"])
+app.include_router(decisions.router, prefix="/decisions", tags=["decisions"])
+app.include_router(contracts.router, prefix="/contracts", tags=["contracts"])
+app.include_router(vapi.router, prefix="/vapi", tags=["vapi"])
+app.include_router(guidelines.router, prefix="/guidelines", tags=["guidelines"])
 
 
 @app.get("/health")
