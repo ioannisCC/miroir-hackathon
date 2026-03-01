@@ -95,17 +95,96 @@ export const MOCK_BUSINESS_SETTINGS: MockBusinessSettings = {
 // Contacts (id for routes; email for interactions/decisions)
 // ---------------------------------------------------------------------------
 
+/** Trust or risk indicator from behavioral analysis (source thread + severity). */
+export type BehaviorIndicator = {
+  signal: string
+  severity: number
+  source: string
+}
+
+/** Structured behavioral profile; summary required, rest optional for partial profiles. */
+export type BehaviorProfile = {
+  summary: string
+  reply_speed?: string
+  reply_speed_score?: number
+  non_response_patterns?: string
+  communication_tone?: string
+  communication_tone_score?: number
+  follow_through_rate?: string
+  follow_through_score?: number
+  channel_preference?: string
+  pressure_response?: string
+  pressure_score?: number
+  trust_indicators?: BehaviorIndicator[]
+  risk_indicators?: BehaviorIndicator[]
+  data_quality_notes?: string
+  timezone?: string
+  /** Legacy / shorthand field used by some contacts. */
+  psychological_profile?: string
+  trust_score?: number
+}
+
 export type MockContact = {
   id: string
   name: string
   email: string
-  behavior_profile: Record<string, unknown>
+  behavior_profile: BehaviorProfile
   risk_score?: number
   trust_score?: number
 }
 
+/** Full behavioral profile for Steven Kean (Enron thread analysis). */
+export const STEVEN_KEAN_BEHAVIOR_PROFILE: BehaviorProfile = {
+  summary:
+    'Steven Kean demonstrates a pattern of selective, high-level engagement combined with frequent non-responsiveness to direct requests. When he does communicate, he shows strong analytical and strategic thinking capabilities with formal, professional tone. However, consistent non-response patterns across multiple threads to direct business inquiries and requests suggest either communication management challenges or selective engagement criteria. His communication style is executive-level when active - concise, directive, and substantive - but his overall responsiveness appears limited, which could impact collaborative effectiveness.',
+  reply_speed:
+    'Steven Kean demonstrates measured response patterns when he does engage, taking time to provide substantive analytical responses rather than immediate reactions. However, across multiple threads, he frequently appears as a passive recipient without visible responses. In Thread 1, he responds after multiple exchanges to provide strategic analysis. In Thread 12, he forwards messages multiple times but shows no response to Philippe Bibi\'s direct request. In Thread 13, he fails to respond to Mark Schroeder\'s direct business inquiry. Overall pattern suggests selective engagement with longer response times when he does participate.',
+  reply_speed_score: 0.3,
+  non_response_patterns:
+    'Consistent pattern of non-response to direct requests across multiple threads. Failed to respond to Philippe Bibi\'s request for agreement on phone number ranges (Thread 12), Mark Schroeder\'s inquiry about Japanese Consul General follow-up (Thread 13), questions about California reporting (Thread 14), and Richard Shapiro\'s repeated questions about call logistics (Thread 4). This suggests either selective response behavior or potential communication management issues.',
+  communication_tone:
+    'When Steven Kean does communicate, he demonstrates formal, analytical, and professional tone. Shows intellectual rigor by asking clarifying questions (\'I\'m still not sure I follow point 4\' in Thread 1) and providing structured analysis. Uses concise, directive language in executive communications (\'Please revise the document as Aleck\'s changes indicate\' in Thread 11). Demonstrates collaborative language and consideration for others\' circumstances (mentioning Joskow\'s wife\'s surgery in Thread 14). However, communication frequency is low across all threads.',
+  communication_tone_score: 0.8,
+  follow_through_rate:
+    'Mixed evidence on follow-through. Shows positive follow-through in Thread 11 by providing specific revision instructions and forwarding relevant context. In Thread 1, acknowledges when circumstances change and adjusts approach accordingly. However, multiple instances suggest incomplete follow-through on external requests and coordination tasks across other threads.',
+  follow_through_score: 0.4,
+  channel_preference:
+    'Exclusively uses email for all observable communications. Demonstrates comfort with group email discussions involving multiple senior stakeholders. Shows behavior of forwarding messages multiple times (9 forwards of same message in Thread 12), suggesting heavy reliance on email forwarding as a communication method.',
+  pressure_response:
+    'Limited data on pressure response, but available evidence suggests measured approach. In Thread 1, remains analytical and constructive when discussing sensitive regulatory matters, maintaining focus on substantive policy issues. No visible responses to urgent requests with same-day deadlines (Thread 9), which could indicate either poor pressure response or communication filtering.',
+  pressure_score: 0.5,
+  trust_indicators: [
+    { signal: 'Acknowledges when circumstances change and adjusts approach accordingly', severity: 0.6, source: 'thread_1' },
+    { signal: 'Asks specific clarifying questions to ensure understanding rather than making assumptions', severity: 0.5, source: 'thread_1' },
+    { signal: 'Provides structured analysis distinguishing between wholesale and retail market dynamics', severity: 0.7, source: 'thread_1' },
+    { signal: 'Provides clear, specific revision instructions rather than vague feedback', severity: 0.6, source: 'thread_11' },
+    { signal: 'Forwards relevant context when giving instructions', severity: 0.5, source: 'thread_11' },
+    { signal: 'Provides transparent information about speaker availability', severity: 0.3, source: 'thread_14' },
+    { signal: 'Offers constructive alternatives when original plan falls through', severity: 0.3, source: 'thread_14' },
+    { signal: 'Asks specific, measurable questions about data accuracy rather than accepting unclear information', severity: 0.6, source: 'thread_2' },
+  ],
+  risk_indicators: [
+    { signal: 'No visible response to direct request for approval from Philippe Bibi despite clear action required', severity: 0.6, source: 'thread_12' },
+    { signal: 'Non-response to direct business inquiry from colleague about outstanding diplomatic courtesy', severity: 0.6, source: 'thread_13' },
+    { signal: 'Sends multiple identical emails on same date, suggesting possible system issues or unusual sending behavior', severity: 0.4, source: 'thread_14' },
+    { signal: 'Does not respond to direct question about California reporting', severity: 0.3, source: 'thread_14' },
+    { signal: 'Receives direct questions about meeting logistics but shows no response', severity: 0.4, source: 'thread_4' },
+    { signal: 'Multiple identical forwards of the same message suggesting potential system issues or unusual forwarding behavior', severity: 0.3, source: 'thread_5' },
+  ],
+  data_quality_notes:
+    'Analysis based on 13 threads with significant data quality limitations. Many threads show Steven Kean only as a recipient with minimal to no outbound communication. Heavy message duplication across threads reduces actual unique communication samples. Most behavioral evidence comes from Threads 1, 11, and 14, with other threads providing primarily non-response patterns. Confidence is moderate for communication tone and analytical capabilities, but low for comprehensive behavioral assessment due to limited active participation across the dataset.',
+  timezone: 'Europe/Athens',
+}
+
 export const MOCK_CONTACTS: MockContact[] = [
-  { id: 'steven-kean', name: 'Steven Kean', email: 'steven.kean@enron.com', behavior_profile: { summary: 'Selective non-responder. Reply speed 0.3. Two emails sent, zero response.', psychological_profile: 'Selective non-responder with low reply speed (0.3). Two emails sent, zero response so far. Tends to avoid direct engagement and may need repeated, clear prompts. Best approached with concise, factual messaging and explicit deadlines. Follow-through score suggests moderate reliability once committed.', reply_speed_score: 0.3, follow_through_score: 0.4 }, risk_score: 0.52, trust_score: 0.45 },
+  {
+    id: 'steven-kean',
+    name: 'Steven Kean',
+    email: 'steven.kean@enron.com',
+    behavior_profile: STEVEN_KEAN_BEHAVIOR_PROFILE,
+    risk_score: 0.52,
+    trust_score: 0.45,
+  },
   { id: 'jeff-dasovich', name: 'Jeff Dasovich', email: 'jeff.dasovich@enron.com', behavior_profile: { summary: 'Cooperative. Promise to pay received. Warm, relationship-driven.', psychological_profile: 'Cooperative and relationship-driven. Has already signalled willingness to pay; responds well to warmth and acknowledgment of his situation. Trust score is high (0.70). Communication should be supportive and clear, reinforcing the agreed plan rather than applying pressure.', trust_score: 0.70 }, risk_score: 0.2, trust_score: 0.70 },
   { id: 'vince-kaminski', name: 'Vince Kaminski', email: 'vince.kaminski@enron.com', behavior_profile: { summary: 'Hierarchical communicator. Responds to authority. Formal tone preferred.', psychological_profile: 'Hierarchical communicator who responds to authority and structure. Prefers formal tone and clear chain of command. References to policy, contracts, or official terms tend to land well. Avoid casual or overly friendly tone; keep messages professional and fact-based.', trust_score: 0.60 }, risk_score: 0.45, trust_score: 0.60 },
   { id: 'jeff-skilling', name: 'Jeff Skilling', email: 'jeff.skilling@enron.com', behavior_profile: { summary: 'Operates through assistant. High-status. Human judgment required.', psychological_profile: 'High-status contact who typically operates through an assistant. Direct outreach may be filtered; human judgment and discretion are required. Messaging should be suitable for delegation and avoid anything that could be perceived as pushy or informal. Escalation paths should be clear.', trust_score: 0.35 }, risk_score: 0.65, trust_score: 0.38 },

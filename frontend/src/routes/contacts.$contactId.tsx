@@ -1,6 +1,9 @@
+import { ClipboardDocumentIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { JsonHighlight } from '#/components/JsonHighlight'
+import { prettyPrintJson } from '#/lib/utils'
 import {
   getMockContactById,
   getMockInteractions,
@@ -36,9 +39,17 @@ function ContactDetailPage() {
   const [intervened, setIntervened] = useState(false)
 
   // Files: mock list + any uploaded this session (from UploadThing onClientUploadComplete)
-  const [uploadedFiles, setUploadedFiles] = useState<
-    { name: string; url: string; key: string | null; size: number }[]
-  >(MOCK_CONTEXT_FILES)
+  const [uploadedFiles, setUploadedFiles] =
+    useState<{ name: string; url: string; key: string | null; size: number }[]>(
+      MOCK_CONTEXT_FILES,
+    )
+  const [profileCopied, setProfileCopied] = useState(false)
+
+  const handleCopyProfile = async () => {
+    await navigator.clipboard.writeText(prettyPrintJson(profile))
+    setProfileCopied(true)
+    setTimeout(() => setProfileCopied(false), 2000)
+  }
 
   const handleStartCall = () => {
     setCallLive(true)
@@ -99,7 +110,8 @@ function ContactDetailPage() {
           </p>
         ) : (
           <p className="text-base text-[var(--sea-ink-soft)] leading-relaxed md:text-lg">
-            No psychological profile yet. Communication patterns will be summarized here after enough interactions.
+            No psychological profile yet. Communication patterns will be
+            summarized here after enough interactions.
           </p>
         )}
       </div>
@@ -131,7 +143,10 @@ function ContactDetailPage() {
               className="flex items-center gap-2 rounded-lg bg-[var(--lagoon)] px-4 py-2 font-medium text-white hover:opacity-90"
             >
               Listen in call
-              <span className="flex items-end gap-0.5" aria-label="Audio streaming">
+              <span
+                className="flex items-end gap-0.5"
+                aria-label="Audio streaming"
+              >
                 {[
                   { name: 'audio-bar-1', duration: 0.55 },
                   { name: 'audio-bar-2', duration: 0.7 },
@@ -319,10 +334,29 @@ function ContactDetailPage() {
         <h2 className="mb-3 text-lg font-semibold text-[var(--sea-ink)]">
           Behavioral profile (engineering)
         </h2>
-        <div className="rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4">
-          <pre className="overflow-auto text-sm font-mono text-[var(--sea-ink)] max-h-[400px] whitespace-pre-wrap break-words">
-            {JSON.stringify(profile, null, 2)}
-          </pre>
+        <div className="relative rounded-xl border border-[var(--line)] bg-[var(--foam)] p-4">
+          <button
+            type="button"
+            onClick={handleCopyProfile}
+            className="cursor-pointer absolute right-3 top-3 flex items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-medium text-[var(--sea-ink)] shadow-sm hover:bg-[var(--chip-bg)] focus:outline-none focus:ring-2 focus:ring-[var(--lagoon)]/30"
+            title={profileCopied ? 'Copied!' : 'Copy JSON'}
+          >
+            {profileCopied ? (
+              <>
+                <CheckIcon className="h-4 w-4 text-[var(--palm)]" aria-hidden />
+                <span className="text-[var(--palm)]">Copied</span>
+              </>
+            ) : (
+              <>
+                <ClipboardDocumentIcon className="h-4 w-4" aria-hidden />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+          <JsonHighlight
+            data={profile}
+            className="text-[var(--sea-ink)] pt-8"
+          />
         </div>
       </section>
 
@@ -362,7 +396,8 @@ function ContactDetailPage() {
                     onClick={() =>
                       setUploadedFiles((prev) =>
                         prev.filter(
-                          (f) => (f.key && f.key !== file.key) || f.url !== file.url,
+                          (f) =>
+                            (f.key && f.key !== file.key) || f.url !== file.url,
                         ),
                       )
                     }

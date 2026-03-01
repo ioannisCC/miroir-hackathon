@@ -93,7 +93,7 @@ function IndexPage() {
         <details
           open={isLg || settingsOpen}
           onToggle={(e) => setSettingsOpen((e.target as HTMLDetailsElement).open)}
-          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] lg:border-0 lg:bg-transparent lg:rounded-none"
+          className="rounded-xl bg-[var(--surface)] lg:bg-transparent lg:rounded-none"
         >
           <summary className="cursor-pointer list-none select-none px-4 py-3 text-xl font-semibold text-[var(--sea-ink)] lg:cursor-default lg:py-0 lg:px-0 [&::-webkit-details-marker]:hidden">
             <span className="inline-flex items-center gap-2">
